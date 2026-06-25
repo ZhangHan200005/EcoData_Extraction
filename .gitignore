@@ -1,0 +1,40 @@
+# This repository publishes only the product, tests, and essential public docs.
+# Everything else at the repository root stays local unless explicitly allowed.
+/*
+
+# Public project files.
+!.gitignore
+!.env.example
+!README.md
+!pyproject.toml
+!LICENSE
+
+# Product code and automated tests.
+!src/
+!src/**
+!tests/
+!tests/**
+
+# Never publish secrets.
+**/.env
+**/.env.*
+!.env.example
+
+# Python caches and local environments.
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+
+# Test, coverage, and type-checker caches.
+**/.pytest_cache/
+**/.coverage
+**/htmlcov/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Build output and local operating-system files.
+**/build/
+**/dist/
+**/*.egg-info/
+**/.DS_Store
