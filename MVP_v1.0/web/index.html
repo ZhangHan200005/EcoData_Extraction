@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EcoData 文献数据审核</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/figure.css">
+</head>
+<body>
+  <header class="topbar">
+    <div><h1>EcoData 文献数据审核</h1><p id="run-meta">尚未运行</p></div>
+    <div class="actions">
+      <label class="upload">选择 PDF<input id="pdf-input" type="file" accept="application/pdf" multiple></label>
+      <button id="run-button" class="primary" type="button">运行抽取</button>
+      <a id="report-link" class="button" href="#" target="_blank">QC 报告</a>
+    </div>
+  </header>
+  <nav class="tabs" aria-label="工作视图">
+    <button class="tab active" data-view="candidates">候选数据</button>
+    <button class="tab" data-view="figures">图件数字化</button>
+    <button class="tab" data-view="studies">论文与筛选</button>
+    <button class="tab" data-view="issues">质量问题</button>
+  </nav>
+  <main>
+    <section id="summary" class="summary"></section>
+    <section id="candidates-view" class="view active">
+      <div class="toolbar"><select id="variable-filter"><option value="">全部变量</option></select><select id="status-filter"><option value="">全部审核状态</option><option>pending</option><option>accepted</option><option>modified</option><option>rejected</option><option>uncertain</option></select><input id="search" type="search" placeholder="搜索论文或证据"></div>
+      <div class="split"><div id="candidate-list" class="list"></div><aside id="candidate-detail" class="detail empty">选择一条候选数据进行审核</aside></div>
+    </section>
+    <section id="figures-view" class="view"><div class="split figure-split"><div id="figure-list" class="list"></div><aside class="detail"><div id="figure-detail" class="empty">选择一个图件任务</div><iframe id="wpd-frame" title="本地 WebPlotDigitizer" src="/wpd/offline.zh_CN.html"></iframe></aside></div></section>
+    <section id="studies-view" class="view"><div id="studies-table" class="table-wrap"></div></section>
+    <section id="issues-view" class="view"><div id="issues-table" class="table-wrap"></div></section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

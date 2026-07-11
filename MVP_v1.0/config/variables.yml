@@ -1,0 +1,113 @@
+schema_version: 1.0.0
+
+variables:
+  - name: measurement_temperature
+    label: Respiration measurement temperature
+    meaning: Temperature associated with a stem respiration measurement
+    kind: numeric
+    canonical_unit: "°C"
+    required: false
+    synonyms: [temperature, air temperature, stem temperature, cambium temperature, 测量温度, 气温, 树干温度, 温度]
+    unit_patterns: ["°C", "ºC", "C", "K", "°F"]
+    allowed_sources: [text, table, figure, supplement]
+    valid_range: [-80, 70]
+    evidence_required: true
+    conflict_policy: human_review
+
+  - name: stem_respiration_rate
+    label: Stem respiration rate
+    meaning: Stem or woody-tissue CO2 efflux or respiration rate
+    kind: numeric
+    canonical_unit: "µmol CO2 m⁻² s⁻¹"
+    required: true
+    synonyms: [stem respiration, stem CO2 efflux, stem CO2 flux, woody tissue respiration, woody tissue CO2 efflux, CO2 efflux rate, CO efflux rate, CO release rate, respiration rate, bole respiration, trunk respiration, Rs, 树干呼吸, 树干CO2释放速率, 树干CO2通量]
+    unit_patterns: ["µmol", "μmol", "umol", "nmol", "mmol", "mg CO2", "mgCO2"]
+    allowed_sources: [text, table, figure, supplement]
+    valid_range: [0, 100]
+    evidence_required: true
+    conflict_policy: human_review
+
+  - name: bark_treatment
+    label: Bark treatment
+    meaning: Bark removal, girdling, sealing, chamber preparation, or untreated bark condition
+    kind: categorical
+    canonical_unit: null
+    required: false
+    synonyms: [debark, bark removal, bark removed, girdling, girdled, sealant, sealed bark, untreated bark, 去皮, 剥皮, 环剥, 密封树皮]
+    allowed_sources: [text, table, supplement]
+    evidence_required: true
+    conflict_policy: human_review
+
+  - name: tree_height
+    label: Tree height
+    meaning: Total height of the measured tree
+    kind: numeric
+    canonical_unit: m
+    required: false
+    synonyms: [tree height, total height, canopy height, 树高]
+    unit_patterns: [m, cm, mm]
+    allowed_sources: [text, table, supplement]
+    valid_range: [0, 150]
+    evidence_required: true
+    conflict_policy: human_review
+
+  - name: tree_age
+    label: Tree age
+    meaning: Age of tree or stand, preserving the stated observation level
+    kind: numeric
+    canonical_unit: year
+    required: false
+    synonyms: [tree age, stand age, years old, age class, 林龄, 树龄]
+    unit_patterns: [year, years, yr, yrs, a, 年]
+    allowed_sources: [text, table, supplement]
+    valid_range: [0, 5000]
+    evidence_required: true
+    conflict_policy: human_review
+
+  - name: diameter_at_breast_height
+    label: Diameter at breast height
+    meaning: Tree stem diameter measured at breast height
+    kind: numeric
+    canonical_unit: cm
+    required: false
+    synonyms: [DBH, diameter at breast height, stem diameter, breast-height diameter, 胸径, 树干直径]
+    unit_patterns: [cm, mm, m]
+    allowed_sources: [text, table, supplement]
+    valid_range: [0, 500]
+    evidence_required: true
+    conflict_policy: human_review
+
+  - name: species
+    label: Species
+    meaning: Scientific or reported name of the measured tree species
+    kind: categorical
+    canonical_unit: null
+    required: false
+    synonyms: [species, tree species, dominant species, 种, 树种, 优势树种]
+    allowed_sources: [text, table, supplement]
+    evidence_required: true
+    conflict_policy: human_review
+
+  - name: measurement_height
+    label: Stem measurement height
+    meaning: Height above ground where stem respiration was measured
+    kind: numeric
+    canonical_unit: m
+    required: false
+    synonyms: [measurement height, chamber height, height above ground, stem height, 测量高度, 距地面, 离地高度]
+    unit_patterns: [m, cm, mm]
+    allowed_sources: [text, table, supplement]
+    valid_range: [0, 100]
+    evidence_required: true
+    conflict_policy: human_review
+
+  - name: measurement_method
+    label: Measurement method
+    meaning: Chamber, gas analyzer, flux calculation, or other method used to measure respiration
+    kind: categorical
+    canonical_unit: null
+    required: true
+    synonyms: [measurement method, gas exchange system, chamber, IRGA, infrared gas analyzer, LI-6250, LI-6400, LI-8100, respiration measurement, 测量方法, 呼吸室, 红外气体分析仪, 红外气体分析]
+    allowed_sources: [text, table, supplement]
+    evidence_required: true
+    conflict_policy: human_review

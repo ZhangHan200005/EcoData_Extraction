@@ -1,0 +1,31 @@
+project:
+  name: stem-respiration-literature-demo
+  research_object: tree stem respiration in field and experimental studies
+  output_shape: long-form observation candidates with evidence and review status
+  inclusion_criteria:
+    - primary research or a clearly identified original dataset
+    - contains at least one target variable or a relevant measurement method
+    - full text is locally available as a digital PDF
+  exclusion_criteria:
+    - review-only evidence without extractable original observations
+    - no traceable page, table, figure, or text evidence
+  context_fields:
+    - site_name
+    - latitude
+    - longitude
+    - elevation
+    - country_or_region
+    - treatment
+    - observation_level
+  figure_digitization: optional_human_review
+  language: auto
+
+run:
+  input_directory: example
+  output_directory: data/output
+  max_tables_per_pdf: 20
+  max_figures_per_pdf: 12
+  render_dpi: 180
+  parser_backend: pdfplumber
+  created_by: local_user
+
