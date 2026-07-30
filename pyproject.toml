@@ -1,12 +1,23 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ecodata-extraction"
-version = "0.1.0"
-description = "Provenance-aware ecological literature-to-data workflow"
+name = "ecoevidence-mvp"
+version = "1.1.0"
+description = "Project-guided PDF parsing and measurable evidence retrieval"
 requires-python = ">=3.9"
+dependencies = [
+  "fastapi==0.116.1",
+  "uvicorn[standard]==0.35.0",
+  "pydantic==2.11.7",
+  "pdfplumber==0.11.8",
+  "pypdf==6.11.0",
+]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+packages = ["backend"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend_tests"]
+addopts = "-q"
