@@ -7,7 +7,7 @@ MVP 1.1 只解决到“可量化的证据召回评估”。它包含检索增强
 ```mermaid
 flowchart LR
     A["自由研究需求"] --> B["ProjectSpec<br/>用户核对"]
-    C["15 篇本地 PDF"] --> D["全文布局解析"]
+    C["本地 PDF 目录"] --> D["全文布局解析"]
     D --> E["规范化证据块<br/>SQLite"]
     B --> F["四级文献筛选"]
     E --> F
@@ -61,7 +61,7 @@ block_id, document_id, ordinal, page, section, kind, text, bbox
 
 `block_id` 由 PDF 哈希、页码、顺序和文本计算，因此同一 PDF 在相同解析版本下可以稳定引用。PDF 哈希与 `parser_version` 决定是否复用；修改解析算法时应提升版本号。
 
-当前已知边界：没有文字层的扫描 PDF 会进入 `failed`。样本中的 `51Ryan_1989.pdf` 正好覆盖了这个失败路径。
+当前已知边界：没有文字层的扫描 PDF 会进入 `failed`，需要后续 OCR 或人工处理。
 
 ## 5. 文献筛选
 
@@ -80,7 +80,7 @@ block_id, document_id, ordinal, page, section, kind, text, bbox
 
 ```text
 0.45 × BM25
-+ 0.35 × 字符 n-gram 语义相似度
++ 0.35 × 字符 n-gram hashing 向量相似度
 + 0.15 × 术语覆盖
 + 0.05 × 章节先验
 ```

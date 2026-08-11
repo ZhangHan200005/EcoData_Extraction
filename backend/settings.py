@@ -16,7 +16,7 @@ class Settings:
     source_directory: Path = Path(
         os.environ.get(
             "ECODATA_SOURCE_DIR",
-            str(PROJECT_ROOT.parent / "MVP_v1" / "example"),
+            str(PROJECT_ROOT / "demo" / "pdfs"),
         )
     ).resolve()
     data_directory: Path = Path(

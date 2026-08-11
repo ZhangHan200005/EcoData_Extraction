@@ -50,3 +50,19 @@ __pycache__/
 *.py[cod]
 /data/*.sqlite3
 /data/*.sqlite3-*
+
+# local notes, generated presentation artifacts, and earlier prototypes
+/.vscode/
+/.codex_ppt_*/
+/*.docx
+/*.pptx
+/*.inspect.ndjson
+/*_Speaker_Notes.md
+/MVP_v1/
+/mvp_v1.1/
+/full_pipeline_prototype/
+/references/
+/src/
+/docs/archive/
+/docs/coordination/
+/docs/learning/

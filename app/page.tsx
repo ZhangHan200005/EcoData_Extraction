@@ -305,7 +305,7 @@ export default function Home() {
     runAction("sync", async () => {
       await api("/api/documents/sync", { method: "POST" });
       await refresh();
-      setNotice("15 篇文献已按 PDF 哈希复用或重新解析。");
+      setNotice("演示文献已按 PDF 哈希复用或重新解析。");
     });
 
   const fetchRetrieval = async () => {
@@ -592,7 +592,7 @@ export default function Home() {
                   onClick={syncDocuments}
                   type="button"
                 >
-                  {busy === "sync" ? "正在解析 15 篇…" : "同步并解析语料"}
+                  {busy === "sync" ? "正在解析语料…" : "同步并解析语料"}
                 </button>
               </div>
 
@@ -671,7 +671,7 @@ export default function Home() {
                   ))
                 ) : (
                   <div className="large-empty">
-                    <span>15</span>
+                    <span>PDF</span>
                     <h3>语料尚未解析</h3>
                     <p>确认研究需求后，点击“同步并解析语料”。</p>
                   </div>
@@ -687,7 +687,7 @@ export default function Home() {
                   <span className="eyebrow">03 · RETRIEVAL AUDIT</span>
                   <h2>看见模型召回了什么，也看见它漏掉什么</h2>
                   <p>
-                    BM25、字符语义向量、术语覆盖和章节先验分别显示，便于定位错误。
+                    BM25、字符 n-gram 向量、术语覆盖和章节先验分别显示，便于定位错误。
                   </p>
                 </div>
                 <span className="phase-badge">当前基线：可离线复现</span>

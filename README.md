@@ -1,65 +1,127 @@
-# EcoEvidence MVP 1.1
+# EcoEvidence: Literature-to-Data Evidence Workbench
 
-一个本地运行的“研究需求 → PDF 全文解析 → 文献筛选 → 证据召回 → 可量化评估”工作台。
+> 面向科研人员的本地 PDF 全文解析、可追溯证据召回与人工评测工作台。当前公开 Demo 聚焦 Literature-to-Data 流程中最关键的“证据定位与验证”环节。
 
-本版本刻意停在证据召回评估：还没有进入图表裁剪、PaddleOCR、数据表抽取或 WPD 数字化。这样可以先用人工 Gold evidence 回答一个更基础的问题：系统能否把正确证据找回来？
+EcoEvidence 将研究需求拆解为字段 Schema，解析 PDF 全文并生成带页码与坐标的证据块，再用可解释的混合检索返回候选证据。审核者可以标记 Gold evidence，并用 Hit@K、Recall@K、Precision@K 和 MRR 评估召回效果。
 
-## 当前成果
+仓库内附一篇完全虚构、可公开的生态学论文 PDF。新用户无需准备私人论文即可跑通 Demo。
 
-- 允许用户用自然语言自由描述需求，后台拆成可核对的目标变量、必须字段、关注字段、来源和排除项。
-- 对 PDF 全文解析，而非只读摘要或关键词页。
-- 只在 SQLite 中保存规范化证据块，不额外保存重复的 `fulltext.jsonl`。
-- 每个证据块保留论文、页码、章节、类型和 PDF 坐标。
-- 文献只分为 `usable`、`relative`、`nodata`、`failed` 四类。
-- 混合召回同时显示 BM25、字符语义、术语覆盖和章节先验分数。
-- 审核员可以从 Top-K 或全文补漏结果中标记 verified Gold evidence。
-- 自动计算 Hit@K、Recall@K、Precision@K、MRR 和按字段表现。
+![EcoEvidence 证据召回 Demo](docs/assets/ecoevidence-demo.jpg)
 
-当前 15 篇样本文献的首轮结果是：14 篇成功解析、1 篇无文本层而失败；共保存 3,615 个证据块。首轮规则筛选得到 6 篇 `usable`、8 篇 `relative`、1 篇 `failed`。这些分类是基线结果，需要后续人工审核，而不是最终真值。
+## 30 秒了解项目
+
+| 问题 | 回答 |
+| --- | --- |
+| 解决什么问题？ | 长文档直接交给 LLM 噪声高、成本高，且最终数据难以回链到原始证据。 |
+| 输入是什么？ | 自然语言研究需求，以及本地 PDF 文献目录。 |
+| 输出是什么？ | 文献筛选状态、Top-K 证据块、页码/章节/坐标、Gold evidence 和召回指标。 |
+| 当前可运行到哪里？ | PDF 全文解析 → 规则筛选 → 混合召回 → 人工标注 → 量化评估。 |
+| 数据是否上传？ | 否。PDF、SQLite 数据库和人工审核结果默认只保存在本地。 |
+
+## 功能状态
+
+### 已实现并可运行
+
+- 将自然语言需求拆解为目标变量、必须字段、关注字段、来源和排除规则。
+- 使用 `pdfplumber` / `pypdf` 解析 PDF 全文，生成稳定 block ID。
+- 在 record level 保存论文、页码、章节、类型和 PDF 坐标，支持证据回链。
+- 使用 BM25、字符 n-gram hashing 向量相似度、术语覆盖和章节先验进行可解释的混合召回。
+- 支持 `usable`、`relative`、`nodata`、`failed` 四级筛选。
+- 支持人工标记 verified Gold evidence，并计算 Hit@K、Recall@K、Precision@K、MRR。
+- 使用 SQLite 保存本地状态，并以 PDF 哈希复用解析结果。
+
+### 实验中 / 下一步
+
+- 用真实 Embedding 模型和向量数据库替换当前轻量级 hashing baseline。
+- 将字段定义与候选证据组合为 RAG 上下文，接入 LLM 结构化抽取。
+- 增加扫描 PDF 的 OCR、表格结构识别、单位标准化和 Schema 校验。
+- 增加字段级导出、人工修改率、单位转换准确率和端到端处理耗时评测。
+
+这一区分是刻意保留的：公开仓库只把已经可以从代码和测试中验证的能力标为“已实现”。
+
+## 架构与数据流
+
+```text
+研究需求
+   ↓
+字段 Schema / 筛选规则
+   ↓
+PDF 全文解析 ──→ 证据块（文献、页码、章节、坐标）
+   ↓
+四级文献筛选
+   ↓
+混合候选召回（BM25 + 向量相似度 + 规则特征）
+   ↓
+人工 Gold evidence ──→ Hit@K / Recall@K / Precision@K / MRR
+```
+
+详细设计见 [系统架构与数据流](docs/ARCHITECTURE.md)。
 
 ## 快速启动
 
-环境要求：
+### 1. 环境要求
 
-- Node.js 22.13 或更高
 - Python 3.9 或更高
+- Node.js 22.13 或更高
 
-首次安装：
+### 2. 克隆并安装
+
+macOS / Linux：
 
 ```bash
-cd /Users/zhanghan/Documents/dataFetching/mvp_v1.1
+git clone https://github.com/ZhangHan200005/EcoData_Extraction.git
+cd EcoData_Extraction
 python3 -m venv .venv
-.venv/bin/pip install -e .
-npm install
+.venv/bin/python -m pip install -e .
+npm ci
 ```
 
-启动后端：
+Windows PowerShell 中，Python 安装命令改为：
+
+```powershell
+py -m venv .venv
+.venv\Scripts\python -m pip install -e .
+```
+
+### 3. 启动后端
 
 ```bash
 npm run dev:backend
 ```
 
-另开一个终端启动前端：
+看到 `Uvicorn running on http://127.0.0.1:8771` 后保持终端运行。
+
+### 4. 启动前端
+
+另开一个终端，在同一项目目录执行：
 
 ```bash
 npm run dev
 ```
 
-浏览器访问 [http://localhost:3000](http://localhost:3000)。默认 PDF 目录是：
+打开终端显示的 Local URL，通常是 [http://localhost:3000](http://localhost:3000)。
 
-```text
-/Users/zhanghan/Documents/dataFetching/MVP_v1/example
-```
+## 5 分钟 Demo 路线
 
-要使用其他 PDF 目录，可在启动后端时指定：
+默认语料目录是仓库内的 `demo/pdfs/`，包含一篇合成论文，不含版权或隐私数据。
+
+1. 在“研究需求”页保留预填需求，点击“解析这段需求”。
+2. 进入“全文解析与筛选”，点击“同步 PDF 全文”。
+3. 确认合成论文被解析，并查看页码、章节和筛选原因。
+4. 在“证据召回审计”中选择一个字段，执行 Top-K 召回并标记 Gold evidence。
+5. 在“量化评估”中查看 Hit@K、Recall@K、Precision@K 和 MRR。
+
+预期证据及人工核对提示见 [Demo 说明](demo/README.md)。如果要换成自己的 PDF，请把文件放入另一个目录后启动：
 
 ```bash
 ECODATA_SOURCE_DIR=/你的/PDF/目录 npm run dev:backend
 ```
 
-如果 `3000` 已被占用，前端会自动使用 `3001` 或后续端口；后端只允许
-`localhost` 和 `127.0.0.1`，但接受任意本地开发端口。终端输出的
-`Local URL` 才是当前应打开的页面地址。
+若不想影响默认数据库，可以为实验指定临时数据库：
+
+```bash
+ECODATA_DB_PATH=/tmp/ecoevidence-experiment.sqlite3 npm run dev:backend
+```
 
 ## 验证
 
@@ -69,45 +131,37 @@ npm run test:backend
 npm test
 ```
 
-`npm test` 会先执行生产构建，再验证服务端渲染页面。后端测试固定了需求拆解、四级筛选、排序分数组成和评估公式。
+`npm test` 会先执行生产构建，再验证服务端渲染页面。后端测试覆盖需求拆解、四级筛选、排序分数组成、API 和评估公式。
 
-## 从哪里开始读
+## 目录说明
 
-建议先看 [中文学习与调试指南](docs/LEARNING_GUIDE.md)，再看 [系统架构与数据流](docs/ARCHITECTURE.md)。
+```text
+app/              Next.js 前端工作台
+backend/          FastAPI、PDF 解析、检索、筛选、评估和 SQLite 数据层
+backend_tests/    Python 后端测试
+demo/             可公开的合成 PDF 与预期证据
+docs/             架构和学习文档
+tests/            前端生产构建与服务端渲染测试
+```
 
 核心入口：
 
 - [前端交互](app/page.tsx)
-- [API 路由](backend/api.py)
+- [FastAPI 路由](backend/api.py)
 - [业务流程](backend/services.py)
 - [PDF 全文解析](backend/pdf_parser.py)
-- [需求拆解](backend/requirement_interpreter.py)
-- [四级筛选](backend/screening.py)
 - [混合召回](backend/retrieval.py)
-- [召回评估](backend/evaluation.py)
+- [检索评估](backend/evaluation.py)
 - [SQLite 数据层](backend/database.py)
-- [共享数据结构](backend/schemas.py)
 
-## 数据与隐私
+## 数据、隐私与限制
 
-PDF 内容、人工 Gold 和评估结果只保存在本地
-`data/ecoevidence.sqlite3`。数据库文件已被 Git 忽略。PDF 原件不会被复制到本项目中；数据库只记录原始路径和哈希。
+运行数据默认保存在 `data/ecoevidence.sqlite3`，数据库已被 Git 忽略。PDF 原件不会被复制到其他位置；数据库只记录来源路径和哈希。
 
-如果想创建一套不影响当前结果的实验数据库，推荐指定新路径，而不是删除现有数据库：
+当前 Demo 不是通用生产系统。它暂不支持扫描件 OCR、复杂表格结构还原、真实神经 Embedding、LLM 字段抽取、单位自动标准化或最终结构化导出。对外介绍时，请把这些能力表述为 roadmap 或正在集成，而不是已经完成。
 
-```bash
-ECODATA_DB_PATH=/tmp/ecoevidence-experiment.sqlite3 npm run dev:backend
-```
+## 继续阅读
 
-## 范围边界
-
-本版本暂不实现：
-
-- 扫描 PDF 的 OCR 补救
-- 图表对象检测和可调裁剪框
-- 表格结构识别与单元格审核
-- PaddleOCR 图中数据提取
-- WPD 预填和数字化
-- 最终数据质检
-
-这些能力可以在证据召回基线通过人工评估后继续增加，避免把“没有找到证据”和“找到了但抽错数据”混成同一个问题。
+- [中文学习与调试指南](docs/LEARNING_GUIDE.md)
+- [系统架构与数据流](docs/ARCHITECTURE.md)
+- [Demo 预期证据](demo/README.md)

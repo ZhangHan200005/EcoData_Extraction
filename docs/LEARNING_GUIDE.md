@@ -141,7 +141,7 @@ Recall/Precision/MRR = 与人工真值比较后的外部效果
 
 当前筛选只负责粗筛。比如一篇论文在参考文献中出现 `sample size`，规则也可能认为该字段存在。这类假阳性应该先通过人工审核形成标注，再决定是增加章节限制、引用区排除，还是引入分类模型。
 
-不要直接根据 15 篇样本把规则写得非常具体，否则容易过拟合。每次修改后对同一 Gold 集比较，而不是只看几个页面例子。
+不要直接根据少量样本把规则写得非常具体，否则容易过拟合。每次修改后对同一 Gold 集比较，而不是只看几个页面例子。
 
 ## 五、数据库能修改和重建什么
 
@@ -257,6 +257,7 @@ npm run test:backend
 - [test_requirements.py](../backend_tests/test_requirements.py)：自然语言拆解
 - [test_screening.py](../backend_tests/test_screening.py)：四种筛选状态
 - [test_retrieval_evaluation.py](../backend_tests/test_retrieval_evaluation.py)：排序分量和指标公式
+- [test_demo_pdf.py](../backend_tests/test_demo_pdf.py)：公开合成 PDF 的解析、筛选和 Top-1 召回
 - [rendered-html.test.mjs](../tests/rendered-html.test.mjs)：生产构建后的页面是否还能渲染
 
-测试使用合成文本和临时数据库，不会修改 15 篇文献对应的正式 SQLite。
+测试使用合成文本、公开合成 PDF 和临时数据库，不会修改用户自己的 SQLite。
