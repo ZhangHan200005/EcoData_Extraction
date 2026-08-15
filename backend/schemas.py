@@ -92,13 +92,28 @@ class RetrievalHit(BaseModel):
     is_gold: bool = False
 
 
+class RetrievalBackendMetadata(BaseModel):
+    """Versioned identity for the vector-producing retrieval backend."""
+
+    backend: str
+    backend_version: str
+    model: str
+    model_version: str
+    dimensions: int = Field(ge=1)
+    is_neural: bool
+
+
 class RetrievalResponse(BaseModel):
     run_id: str
     document_id: str
     field_name: str
     query: str
     retrieval_version: str
+    backend: RetrievalBackendMetadata
+    parameters: dict[str, Any]
+    query_count: int = 1
     total_blocks: int
+    elapsed_ms: float = Field(ge=0)
     hits: list[RetrievalHit]
 
 
@@ -124,8 +139,11 @@ class EvaluationResponse(BaseModel):
     evaluation_id: str
     generated_at: str
     retrieval_version: str
+    backend: RetrievalBackendMetadata
+    parameters: dict[str, Any]
     gold_status: str
     coverage: dict[str, int]
+    timing: dict[str, float]
     metrics_at_k: dict[str, dict[str, float]]
     mean_reciprocal_rank: float
     per_field: list[dict[str, Any]]

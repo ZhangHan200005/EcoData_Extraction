@@ -51,6 +51,7 @@ def health() -> dict:
         "database_path": str(settings.database_path),
         "parser_version": settings.parser_version,
         "retrieval_version": settings.retrieval_version,
+        "retrieval_backend": service.retriever.backend_metadata.model_dump(),
     }
 
 

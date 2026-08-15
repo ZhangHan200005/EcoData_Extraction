@@ -38,14 +38,14 @@ class PublicDemoPdfTests(unittest.TestCase):
         self.assertEqual("usable", screened.screening_status)
         self.assertEqual([], screened.missing_required_fields)
 
-        _, ranked = EvidenceRetriever().rank(
+        ranking = EvidenceRetriever().rank(
             blocks,
             "stem_respiration_rate",
             spec,
         )
-        self.assertIn("2.40 micromol CO2 m-2 s-1", ranked[0].block.text)
-        self.assertEqual(1, ranked[0].block.page)
-        self.assertEqual("results", ranked[0].block.section)
+        self.assertIn("2.40 micromol CO2 m-2 s-1", ranking.hits[0].block.text)
+        self.assertEqual(1, ranking.hits[0].block.page)
+        self.assertEqual("results", ranking.hits[0].block.section)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 ## 1. 版本边界
 
-MVP 1.1 只解决到“可量化的证据召回评估”。它包含检索增强流程中的检索部分，但不生成最终科研数据，也不调用大模型编造摘要或数值。
+MVP 1.1 只解决到“可量化的证据召回评估”。M2 的首个切片进一步把向量编码器改造成带版本元数据的可替换 backend，并记录检索参数与耗时；当前生产默认值仍是 hashing baseline，尚未接入真实神经模型或持久化向量索引。系统不生成最终科研数据，也不调用大模型编造摘要或数值。
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,7 @@ flowchart LR
 - `blocks` 是唯一的全文事实来源，每条保存文本、页码、章节、类型和 PDF 坐标。
 - 完整全文需要时按 `ordinal` 拼接 `blocks.text` 即可，不再复制一份大字符串。
 - `gold_evidence` 只保存对证据块的引用。
-- `retrieval_runs` 和 `evaluations` 保存版本化实验结果。
+- `retrieval_runs` 和 `evaluations` 保存版本化实验结果。单次召回还独立记录 retrieval backend、backend/model 版本、参数、查询数、语料块数和耗时；旧数据库通过只增列迁移保留原记录。
 
 因此“全文可检索”和“避免重复存储”可以同时成立。数据库结构见
 [database.py](../backend/database.py)。
@@ -42,7 +42,7 @@ flowchart LR
 | [requirement_interpreter.py](../backend/requirement_interpreter.py) | 把自由描述拆成可核对字段 | 判断论文是否有数据 |
 | [pdf_parser.py](../backend/pdf_parser.py) | 全文、布局、章节、caption、稳定 ID | OCR 扫描页 |
 | [screening.py](../backend/screening.py) | `usable/relative/nodata/failed` 基线规则 | 最终人工结论 |
-| [retrieval.py](../backend/retrieval.py) | 查询扩展、BM25、字符向量、排序 | 生成或抽取最终数值 |
+| [retrieval.py](../backend/retrieval.py) | Embedding backend 契约、查询扩展、BM25、向量相似度和排序 | 模型下载、持久化向量或最终数值抽取 |
 | [evaluation.py](../backend/evaluation.py) | 对 verified Gold 计算指标 | 自动创造 Gold |
 | [database.py](../backend/database.py) | SQLite 持久化和查询 | 页面展示 |
 | [services.py](../backend/services.py) | 串联用例、哈希复用、重新筛选 | HTTP 细节 |
@@ -85,7 +85,16 @@ block_id, document_id, ordinal, page, section, kind, text, bbox
 + 0.05 × 章节先验
 ```
 
-字符向量是可离线复现的 hashing baseline，不是神经网络 embedding。它的优势是没有模型下载、成本和网络依赖；劣势是语义泛化有限。后续可以在保留同一接口和评估集的前提下替换为领域 embedding 或 reranker。
+字符向量是可离线复现的 hashing baseline，不是神经网络 embedding。它的优势是没有模型下载、成本和网络依赖；劣势是语义泛化有限。`EmbeddingBackend` 现在要求每个实现暴露 backend、backend version、model、model version、维度、参数和是否为神经模型。`EvidenceRetriever` 通过该接口取得向量，因此后续领域 embedding 可以对同一证据块、查询、混合权重和 Gold 集运行。
+
+API 返回当前 backend/model/version、完整参数和单次耗时，评估结果还返回总检索耗时、评估耗时、平均查询耗时以及逐查询的 Gold/top block ID。测试中的 `fixture-deterministic` 只验证接口替换和报告形状，不是神经模型，也不能作为神经检索收益证据。
+
+真实模型接入后，持久化向量必须使用以下联合身份，任何一项变化都不得静默复用旧向量：
+
+```text
+document_sha256 + block_id + normalized_text_hash
++ backend + model + model_version
+```
 
 这正是 RAG 中的 Retrieval 层。当前没有 Generation 层，因为此阶段首先要证明正确证据能被召回。
 

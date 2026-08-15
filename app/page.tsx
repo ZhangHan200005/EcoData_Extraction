@@ -74,18 +74,34 @@ type RetrievalHit = {
   is_gold: boolean;
 };
 
+type RetrievalBackend = {
+  backend: string;
+  backend_version: string;
+  model: string;
+  model_version: string;
+  dimensions: number;
+  is_neural: boolean;
+};
+
 type RetrievalResponse = {
   run_id: string;
   field_name: string;
   query: string;
   retrieval_version: string;
+  backend: RetrievalBackend;
+  parameters: Record<string, unknown>;
+  query_count: number;
   total_blocks: number;
+  elapsed_ms: number;
   hits: RetrievalHit[];
 };
 
 type Evaluation = {
   generated_at: string;
   retrieval_version: string;
+  backend?: RetrievalBackend;
+  parameters?: Record<string, unknown>;
+  timing?: Record<string, number>;
   coverage: Record<string, number>;
   metrics_at_k: Record<
     string,
@@ -766,7 +782,11 @@ export default function Home() {
                         <span className="eyebrow">TOP {topK}</span>
                         <h3>机器召回结果</h3>
                       </div>
-                      <code>{retrieval.retrieval_version}</code>
+                      <code>
+                        {retrieval.retrieval_version} · {retrieval.backend.backend}/
+                        {retrieval.backend.model}@{retrieval.backend.model_version} ·{" "}
+                        {retrieval.elapsed_ms.toFixed(2)} ms
+                      </code>
                     </div>
                     <div className="query-box">
                       <span>查询扩展</span>
@@ -1050,7 +1070,15 @@ export default function Home() {
                         <span className="eyebrow">FIELD BREAKDOWN</span>
                         <h3>按字段诊断</h3>
                       </div>
-                      <code>{evaluation.retrieval_version}</code>
+                      <code>
+                        {evaluation.retrieval_version}
+                        {evaluation.backend
+                          ? ` · ${evaluation.backend.backend}/${evaluation.backend.model}@${evaluation.backend.model_version}`
+                          : ""}
+                        {evaluation.timing
+                          ? ` · ${evaluation.timing.retrieval_elapsed_ms.toFixed(2)} ms`
+                          : ""}
+                      </code>
                     </div>
                     <table>
                       <thead>

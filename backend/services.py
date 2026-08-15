@@ -26,12 +26,16 @@ def utc_now() -> str:
 
 
 class EcoEvidenceService:
-    def __init__(self, repository: Repository | None = None) -> None:
+    def __init__(
+        self,
+        repository: Repository | None = None,
+        retriever: EvidenceRetriever | None = None,
+    ) -> None:
         self.repository = repository or Repository()
         self.interpreter = RequirementInterpreter()
         self.parser = FullDocumentParser()
         self.screener = DocumentScreener()
-        self.retriever = EvidenceRetriever()
+        self.retriever = retriever or EvidenceRetriever()
 
     def interpret_and_save(self, brief: str) -> ProjectSpec:
         spec = self.interpreter.interpret(brief)
@@ -174,7 +178,7 @@ class EcoEvidenceService:
                 field_name=field_name,
             )
         }
-        query, ranked = self.retriever.rank(
+        ranking = self.retriever.rank(
             blocks,
             field_name,
             spec,
@@ -184,19 +188,18 @@ class EcoEvidenceService:
             run_id=f"retrieval-{uuid4().hex[:12]}",
             document_id=document_id,
             field_name=field_name,
-            query=query,
+            query=ranking.query,
             retrieval_version=settings.retrieval_version,
+            backend=self.retriever.backend_metadata,
+            parameters=self.retriever.parameters,
+            query_count=1,
             total_blocks=len(blocks),
-            hits=ranked[:k],
+            elapsed_ms=ranking.elapsed_ms,
+            hits=ranking.hits[:k],
         )
         self.repository.save_retrieval_run(
-            response.run_id,
-            document_id,
-            field_name,
-            query,
+            response,
             k,
-            response.model_dump(),
-            settings.retrieval_version,
             utc_now(),
         )
         return response

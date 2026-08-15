@@ -26,13 +26,14 @@ EcoEvidence 将研究需求拆解为字段 Schema，解析 PDF 全文并生成�
 - 使用 `pdfplumber` / `pypdf` 解析 PDF 全文，生成稳定 block ID。
 - 在 record level 保存论文、页码、章节、类型和 PDF 坐标，支持证据回链。
 - 使用 BM25、字符 n-gram hashing 向量相似度、术语覆盖和章节先验进行可解释的混合召回。
+- 使用可替换、带版本元数据的 Embedding backend 契约运行召回；当前默认 backend 仍是离线 hashing baseline，并记录模型标识、参数和耗时。
 - 支持 `usable`、`relative`、`nodata`、`failed` 四级筛选。
 - 支持人工标记 verified Gold evidence，并计算 Hit@K、Recall@K、Precision@K、MRR。
 - 使用 SQLite 保存本地状态，并以 PDF 哈希复用解析结果。
 
 ### 实验中 / 下一步
 
-- 用真实 Embedding 模型和向量数据库替换当前轻量级 hashing baseline。
+- 在当前版本化 backend 契约上接入真实神经 Embedding 模型和持久化向量索引；模型选型和实测收益尚未完成。
 - 将字段定义与候选证据组合为 RAG 上下文，接入 LLM 结构化抽取。
 - 增加扫描 PDF 的 OCR、表格结构识别、单位标准化和 Schema 校验。
 - 增加字段级导出、人工修改率、单位转换准确率和端到端处理耗时评测。

@@ -8,7 +8,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from .schemas import BlockRecord, DocumentRecord, GoldEvidenceRecord, ProjectSpec
+from .schemas import (
+    BlockRecord,
+    DocumentRecord,
+    GoldEvidenceRecord,
+    ProjectSpec,
+    RetrievalResponse,
+)
 from .settings import settings
 
 
@@ -81,6 +87,14 @@ CREATE TABLE IF NOT EXISTS retrieval_runs (
     k INTEGER NOT NULL,
     result_json TEXT NOT NULL,
     retrieval_version TEXT NOT NULL,
+    retrieval_backend TEXT NOT NULL DEFAULT 'unknown',
+    backend_version TEXT NOT NULL DEFAULT 'unknown',
+    embedding_model TEXT NOT NULL DEFAULT 'unknown',
+    model_version TEXT NOT NULL DEFAULT 'unknown',
+    parameters_json TEXT NOT NULL DEFAULT '{}',
+    query_count INTEGER NOT NULL DEFAULT 1,
+    corpus_size INTEGER NOT NULL DEFAULT 0,
+    elapsed_ms REAL NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 
@@ -90,6 +104,18 @@ CREATE TABLE IF NOT EXISTS evaluations (
     created_at TEXT NOT NULL
 );
 """
+
+
+RETRIEVAL_RUN_MIGRATIONS = {
+    "retrieval_backend": "TEXT NOT NULL DEFAULT 'unknown'",
+    "backend_version": "TEXT NOT NULL DEFAULT 'unknown'",
+    "embedding_model": "TEXT NOT NULL DEFAULT 'unknown'",
+    "model_version": "TEXT NOT NULL DEFAULT 'unknown'",
+    "parameters_json": "TEXT NOT NULL DEFAULT '{}'",
+    "query_count": "INTEGER NOT NULL DEFAULT 1",
+    "corpus_size": "INTEGER NOT NULL DEFAULT 0",
+    "elapsed_ms": "REAL NOT NULL DEFAULT 0",
+}
 
 
 def _json(value: Any) -> str:
@@ -103,6 +129,17 @@ def initialize_database(path: Path | None = None) -> None:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.executescript(SCHEMA)
+        existing_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(retrieval_runs)"
+            ).fetchall()
+        }
+        for column, declaration in RETRIEVAL_RUN_MIGRATIONS.items():
+            if column not in existing_columns:
+                connection.execute(
+                    f"ALTER TABLE retrieval_runs ADD COLUMN {column} {declaration}"
+                )
 
 
 @contextmanager
@@ -334,13 +371,8 @@ class Repository:
 
     def save_retrieval_run(
         self,
-        run_id: str,
-        document_id: str,
-        field_name: str,
-        query: str,
+        response: RetrievalResponse,
         k: int,
-        result: dict[str, Any],
-        retrieval_version: str,
         created_at: str,
     ) -> None:
         with connect(self.path) as connection:
@@ -348,20 +380,43 @@ class Repository:
                 """
                 INSERT INTO retrieval_runs (
                     run_id, document_id, field_name, query_text,
-                    k, result_json, retrieval_version, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    k, result_json, retrieval_version, retrieval_backend,
+                    backend_version, embedding_model, model_version,
+                    parameters_json, query_count, corpus_size, elapsed_ms,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    run_id,
-                    document_id,
-                    field_name,
-                    query,
+                    response.run_id,
+                    response.document_id,
+                    response.field_name,
+                    response.query,
                     k,
-                    _json(result),
-                    retrieval_version,
+                    response.model_dump_json(),
+                    response.retrieval_version,
+                    response.backend.backend,
+                    response.backend.backend_version,
+                    response.backend.model,
+                    response.backend.model_version,
+                    _json(response.parameters),
+                    response.query_count,
+                    response.total_blocks,
+                    response.elapsed_ms,
                     created_at,
                 ),
             )
+
+    def retrieval_run(self, run_id: str) -> dict[str, Any] | None:
+        with connect(self.path) as connection:
+            row = connection.execute(
+                "SELECT * FROM retrieval_runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["result"] = json.loads(result.pop("result_json"))
+        result["parameters"] = json.loads(result.pop("parameters_json"))
+        return result
 
     def save_evaluation(
         self,

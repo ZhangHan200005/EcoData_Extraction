@@ -7,8 +7,15 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
+from time import perf_counter
+from typing import Any, Protocol
 
-from .schemas import BlockRecord, ProjectSpec, RetrievalHit
+from .schemas import (
+    BlockRecord,
+    ProjectSpec,
+    RetrievalBackendMetadata,
+    RetrievalHit,
+)
 
 
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9₂⁻−-]*|\d+(?:\.\d+)?|[\u4e00-\u9fff]+")
@@ -33,16 +40,52 @@ def tokenize(text: str) -> list[str]:
     return [token for token in tokens if token.strip()]
 
 
-class HashingEmbedder:
-    """Dependency-free character n-gram vector baseline for zh/en retrieval."""
+class EmbeddingBackend(Protocol):
+    """Minimal contract shared by baseline and future neural encoders."""
 
-    def __init__(self, dimensions: int = 384) -> None:
+    @property
+    def metadata(self) -> RetrievalBackendMetadata: ...
+
+    @property
+    def parameters(self) -> dict[str, Any]: ...
+
+    def encode(self, text: str) -> list[float]: ...
+
+
+class HashingEmbeddingBackend:
+    """Dependency-free character n-gram baseline; explicitly non-neural."""
+
+    def __init__(
+        self,
+        dimensions: int = 384,
+        ngram_widths: tuple[int, ...] = (2, 3, 4),
+    ) -> None:
         self.dimensions = dimensions
+        self.ngram_widths = ngram_widths
+
+    @property
+    def metadata(self) -> RetrievalBackendMetadata:
+        return RetrievalBackendMetadata(
+            backend="hashing",
+            backend_version="v1",
+            model="blake2b-character-ngram",
+            model_version="2-4gram-v1",
+            dimensions=self.dimensions,
+            is_neural=False,
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "dimensions": self.dimensions,
+            "ngram_widths": list(self.ngram_widths),
+            "normalization": "l2",
+        }
 
     def encode(self, text: str) -> list[float]:
         compact = re.sub(r"\s+", " ", normalize(text))
         vector = [0.0] * self.dimensions
-        for width in (2, 3, 4):
+        for width in self.ngram_widths:
             for index in range(max(0, len(compact) - width + 1)):
                 gram = compact[index : index + width]
                 digest = hashlib.blake2b(
@@ -55,7 +98,15 @@ class HashingEmbedder:
         return [value / norm for value in vector] if norm else vector
 
 
+# Backward-compatible name for callers that used the original baseline class.
+HashingEmbedder = HashingEmbeddingBackend
+
+
 def cosine(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right):
+        raise ValueError(
+            "Embedding backend returned vectors with inconsistent dimensions"
+        )
     return sum(a * b for a, b in zip(left, right))
 
 
@@ -143,9 +194,56 @@ FIELD_HINTS: dict[str, list[str]] = {
 }
 
 
+@dataclass(frozen=True)
+class RetrievalWeights:
+    bm25: float = 0.45
+    vector_similarity: float = 0.35
+    term_coverage: float = 0.15
+    section_prior: float = 0.05
+
+    def __post_init__(self) -> None:
+        values = self.as_dict().values()
+        if any(value < 0 for value in values):
+            raise ValueError("Retrieval weights must be non-negative")
+        if not math.isclose(sum(values), 1.0):
+            raise ValueError("Retrieval weights must sum to 1.0")
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "bm25": self.bm25,
+            "vector_similarity": self.vector_similarity,
+            "term_coverage": self.term_coverage,
+            "section_prior": self.section_prior,
+        }
+
+
+@dataclass(frozen=True)
+class RankedEvidence:
+    query: str
+    hits: list[RetrievalHit]
+    elapsed_ms: float
+
+
 class EvidenceRetriever:
-    def __init__(self, dimensions: int = 384) -> None:
-        self.embedder = HashingEmbedder(dimensions)
+    def __init__(
+        self,
+        embedding_backend: EmbeddingBackend | None = None,
+        weights: RetrievalWeights | None = None,
+    ) -> None:
+        self.embedding_backend = embedding_backend or HashingEmbeddingBackend()
+        self.weights = weights or RetrievalWeights()
+
+    @property
+    def backend_metadata(self) -> RetrievalBackendMetadata:
+        return self.embedding_backend.metadata
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "weights": self.weights.as_dict(),
+            "embedding": self.embedding_backend.parameters,
+            "bm25": {"k1": 1.5, "b": 0.75},
+        }
 
     @staticmethod
     def query_for(field_name: str, spec: ProjectSpec) -> tuple[str, list[str]]:
@@ -166,15 +264,23 @@ class EvidenceRetriever:
         field_name: str,
         spec: ProjectSpec,
         gold_block_ids: set[str] | None = None,
-    ) -> tuple[str, list[RetrievalHit]]:
+    ) -> RankedEvidence:
+        started_at = perf_counter()
         query, terms = self.query_for(field_name, spec)
         query_tokens = tokenize(query)
         block_tokens = [tokenize(block.text) for block in blocks]
         bm25_raw = BM25Index(block_tokens).scores(query_tokens)
         bm25_scores = _minmax(bm25_raw)
-        query_vector = self.embedder.encode(query)
+        query_vector = self.embedding_backend.encode(query)
+        if len(query_vector) != self.backend_metadata.dimensions:
+            raise ValueError(
+                "Embedding backend vector length does not match its metadata"
+            )
         semantic_scores = [
-            max(0.0, cosine(query_vector, self.embedder.encode(block.text)))
+            max(
+                0.0,
+                cosine(query_vector, self.embedding_backend.encode(block.text)),
+            )
             for block in blocks
         ]
         expected_sections = self._expected_sections(field_name)
@@ -198,10 +304,10 @@ class EvidenceRetriever:
                 else 0.15
             )
             score = (
-                0.45 * bm25_scores[index]
-                + 0.35 * semantic_scores[index]
-                + 0.15 * lexical_coverage
-                + 0.05 * section_prior
+                self.weights.bm25 * bm25_scores[index]
+                + self.weights.vector_similarity * semantic_scores[index]
+                + self.weights.term_coverage * lexical_coverage
+                + self.weights.section_prior * section_prior
             )
             hits.append(
                 RetrievalHit(
@@ -221,7 +327,11 @@ class EvidenceRetriever:
         hits.sort(key=lambda hit: (-hit.score, hit.block.ordinal))
         for rank, hit in enumerate(hits, 1):
             hit.rank = rank
-        return query, hits
+        return RankedEvidence(
+            query=query,
+            hits=hits,
+            elapsed_ms=round((perf_counter() - started_at) * 1000, 6),
+        )
 
     @staticmethod
     def _expected_sections(field_name: str) -> set[str]:

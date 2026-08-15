@@ -53,7 +53,7 @@ Not yet implemented as production-ready functionality:
 | --- | --- | --- | --- |
 | M0 | Reproducible portfolio baseline | Completed | Public Demo, README, tests, CI, PR #1 |
 | M1 | Repository rules and measurable Roadmap | Completed | `AGENTS.md`, this Roadmap, PR #2 |
-| M2 | Versioned neural Embedding and Vector Retrieval | Planned | Baseline comparison with Hit@K, Recall@K, MRR, latency |
+| M2 | Versioned neural Embedding and Vector Retrieval | In progress | Baseline comparison with Hit@K, Recall@K, MRR, latency |
 | M3 | Schema-guided RAG structured extraction | Planned | Validated field output with evidence and offline tests |
 | M4 | Field provenance, quality rules, and export | Planned | Traceable manifest plus JSON/CSV export |
 | M5 | OCR and table-aware parsing | Planned | Scanned/table fixtures with parsing and recall tests |
@@ -99,7 +99,7 @@ Out of scope: retrieval or product behavior changes.
 
 ## M2 — Versioned neural Embedding and Vector Retrieval
 
-Status: **Planned** — recommended next development milestone
+Status: **In progress** — branch `feature/embedding-retrieval`; Draft PR pending
 
 Goal: introduce a real semantic retrieval backend without losing the current
 offline, explainable baseline or the ability to compare results.
@@ -133,6 +133,28 @@ Two-hour first slice:
 - add a deterministic comparison fixture with multiple field queries;
 - add a benchmark/report shape that the neural implementation can fill;
 - avoid claiming a neural gain until the actual model has been run.
+
+First-slice implementation evidence:
+
+- `EmbeddingBackend` defines a replaceable vector encoder contract with backend,
+  model, version, dimension, parameters, and neural/non-neural metadata;
+- the existing character n-gram hashing implementation remains the active,
+  dependency-free default and retains the original hybrid ranking weights;
+- retrieval runs persist backend/model identity, parameters, query count, corpus
+  size, and elapsed time through a non-destructive SQLite schema migration;
+- evaluation reports backend metadata, retrieval/evaluation latency, corpus work,
+  and inspectable Gold/top-block IDs for each query;
+- `synthetic-retrieval-comparison-v1` covers three fields over four synthetic
+  blocks and runs both the production hashing backend and a clearly test-only,
+  deterministic backend without network access or credentials. Configuration,
+  reproducible command, fixture-scale results, and limitations are recorded in
+  [the M2 first-slice evaluation](M2_RETRIEVAL_EVALUATION.md).
+
+Current limitation: this slice proves the versioned interface and comparison
+path, not a production neural model or a neural quality improvement. Choosing a
+real model, documenting its license/download/privacy/runtime properties, and
+adding a stale-safe persistent vector cache remain required before M2 can be
+marked **Completed**.
 
 Out of scope: LLM generation, OCR, and final field extraction.
 
