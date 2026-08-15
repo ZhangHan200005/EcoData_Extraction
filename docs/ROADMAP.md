@@ -99,7 +99,8 @@ Out of scope: retrieval or product behavior changes.
 
 ## M2 — Versioned neural Embedding and Vector Retrieval
 
-Status: **In progress** — branch `feature/embedding-retrieval`; Draft PR pending
+Status: **In progress** — branch `feature/embedding-retrieval`; Draft PR
+[#4](https://github.com/ZhangHan200005/EcoData_Extraction/pull/4)
 
 Goal: introduce a real semantic retrieval backend without losing the current
 offline, explainable baseline or the ability to compare results.
