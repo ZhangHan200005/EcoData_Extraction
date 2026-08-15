@@ -270,3 +270,14 @@ git diff --check
 - Python 3.10：项目元数据最低版本已提升到 3.10，并新增独立 core/offline CI job；本地没有覆盖或删除原 `.venv`。
 - 深入理解：升级解释器不仅是修改 `requires-python`，还要在新运行时用更严格警告发现资源生命周期变化，并让最低支持版本进入 CI。
 - 整体位置：本地实现与验收完成；下一步是 diff/敏感文件审查、语义化提交、推送 Draft PR #4 和监控 CI。
+
+### M2-F007 — 真实神经切片发布与远端验收
+
+- 时间：2026-08-15
+- 状态：实现提交和首轮远端验收完成
+- 提交：`5e682f8 feat: add pinned multilingual embedding backend`
+- PR：Draft PR #4 已更新为 `feat: add versioned neural embedding retrieval`，仍以 `main` 为 base。
+- CI：GitHub Actions CI #17 成功；`Backend compatibility (Python 3.10)` 和 `Lint, build, and test` 两个 job 均通过。
+- 远端覆盖：Python 3.10 core/offline 安装与 19 项后端测试；Python 3.11 综合 lint、19 项后端测试、前端生产构建和 rendered-page 测试。
+- 发布边界：没有提交 470 MB 模型、SQLite 数据、缓存、密钥或临时虚拟环境；远端 CI 没有下载模型。
+- 整体位置：M2 的版本化真实神经检索垂直切片已可运行、可比较、可审计；Roadmap 仍标记 **In progress**，下一证据任务是扩展跨论文、中英文改写和 hard-negative Gold 集，不能用当前 3-query 满分宣称质量提升。
