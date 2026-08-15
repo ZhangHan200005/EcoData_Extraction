@@ -295,3 +295,14 @@ git diff --check
 - 自动验证：本轮新增三策略持久化、BM25 跳过向量、Gold 指标和 E5 unavailable 降级测试；截至本条记录，21 项后端测试、lint、生产构建和 2 项 rendered-page 测试通过；浏览器控制台无 warning/error，700px 视口下三列折为单列且无横向溢出。
 - 深入理解：`backend` 回答“向量由谁生成”，`comparison_strategy` 回答“检索分支如何组合”。BM25 是共享的词法分支，不应被错误描述成 hashing 或 E5 的另一个名字。
 - 整体位置：M2 已从命令行比较推进到可人工审计的交互比较；仍为 **In progress**，下一数据任务是扩大经过人工确认的跨论文、中英文改写和 hard-negative Gold 集。
+
+### M2-F009 — 三路交互增强发布与远端验收
+
+- 时间：2026-08-15
+- 状态：实现已推送，远端 CI 成功
+- 实现提交：`47a83cc feat: add interactive retrieval comparison`
+- 分支与 PR：`feature/embedding-retrieval` 已推送；Draft PR #4 保持以 `main` 为 base，并已更新变更说明、用户影响、验证证据和限制。
+- 远端验证：GitHub Actions CI #21 成功；`Backend compatibility (Python 3.10)` 与 `Lint, build, and test` 两个 job 均通过，覆盖离线 core 安装、21 项后端测试、公开 PDF Demo、前端 lint、生产构建和 2 项 rendered-page 测试。
+- 审计修正：发布前把 BM25-only 的向量身份从借用 hashing 改为明确的 `disabled/none@none`；因此 hashing 和 E5 是两种真实向量 backend，而 BM25-only 清楚表示没有启用向量分支。
+- 发布边界：没有提交本地 SQLite、470 MB 模型、虚拟环境、缓存、构建产物、密钥或私人论文；没有修改 `main`、删除数据或重写历史。
+- 整体位置：M2 的实现、三路交互、Gold 联动、版本审计和远端验收已形成可运行闭环；代表性跨论文 Gold 证据仍未完成，因此 Roadmap 继续标记 **In progress**。
