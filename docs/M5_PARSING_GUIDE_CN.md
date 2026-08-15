@@ -183,3 +183,12 @@
   `main`，创建时 GitHub 报告可合并；仍需 CI 通过和人工审查后才应合并。
 - PR 保持 Draft，不删除功能分支。本条仅记录发布状态，不把 M5 标记为
   Completed；OCR、表格 cell 结构和可选 Docling 对照仍是后续范围。
+
+### M5-F015 — 首轮远端 CI 结果
+
+- Draft PR #5 的 GitHub Actions `CI` run #28 已在提交 `bf121b7` 上完成，
+  结论为 success。
+- 发布前本地验证也保持通过：ESLint、30 个后端测试、前端生产构建、2 个
+  rendered-page tests 和 `git diff --check`。
+- 这证明当前垂直切片满足仓库自动化验收；它不证明视觉候选准确率或检索
+  效果已经达到目标，这两项仍需人工 Gold 与后续量化评估。
