@@ -1,1 +1,0 @@
-"""EcoData Extraction package."""

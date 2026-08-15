@@ -1,25 +1,167 @@
-# Scientific Literature Data Extraction Agent
+# EcoEvidence: Literature-to-Data Evidence Workbench
 
-A human-in-the-loop system that converts scientific papers into
-structured, evidence-linked and quality-audited research data.
+> 面向科研人员的本地 PDF 全文解析、可追溯证据召回与人工评测工作台。当前公开 Demo 聚焦 Literature-to-Data 流程中最关键的“证据定位与验证”环节。
 
-## What it does
+EcoEvidence 将研究需求拆解为字段 Schema，解析 PDF 全文并生成带页码与坐标的证据块，再用可解释的混合检索返回候选证据。审核者可以标记 Gold evidence，并用 Hit@K、Recall@K、Precision@K 和 MRR 评估召回效果。
 
-PDF / metadata input
-→ document parsing
-→ schema-guided extraction
-→ evidence linking
-→ human verification
-→ quantitative quality report
+仓库内附一篇完全虚构、可公开的生态学论文 PDF。新用户无需准备私人论文即可跑通 Demo。
 
-## Demo
+![EcoEvidence 证据召回 Demo](docs/assets/ecoevidence-demo.jpg)
 
-[GIF or screenshot]
+## 30 秒了解项目
 
-## Current MVP
+| 问题 | 回答 |
+| --- | --- |
+| 解决什么问题？ | 长文档直接交给 LLM 噪声高、成本高，且最终数据难以回链到原始证据。 |
+| 输入是什么？ | 自然语言研究需求，以及本地 PDF 文献目录。 |
+| 输出是什么？ | 文献筛选状态、Top-K 证据块、页码/章节/坐标、Gold evidence 和召回指标。 |
+| 当前可运行到哪里？ | PDF 全文解析 → 规则筛选 → 混合召回 → 人工标注 → 量化评估。 |
+| 数据是否上传？ | 否。PDF、SQLite 数据库和人工审核结果默认只保存在本地。 |
 
-- Structured extraction from scientific literature
-- Configurable variable schema
-- Evidence-level source tracking
-- Human-in-the-loop verification
-- Quality evaluation and error analysis
+## 功能状态
+
+### 已实现并可运行
+
+- 将自然语言需求拆解为目标变量、必须字段、关注字段、来源和排除规则。
+- 使用 `pdfplumber` / `pypdf` 解析 PDF 全文，生成稳定 block ID。
+- 在 record level 保存论文、页码、章节、类型和 PDF 坐标，支持证据回链。
+- 使用 BM25、字符 n-gram hashing 向量相似度、术语覆盖和章节先验进行可解释的混合召回。
+- 支持 `usable`、`relative`、`nodata`、`failed` 四级筛选。
+- 支持人工标记 verified Gold evidence，并计算 Hit@K、Recall@K、Precision@K、MRR。
+- 使用 SQLite 保存本地状态，并以 PDF 哈希复用解析结果。
+
+### 实验中 / 下一步
+
+- 用真实 Embedding 模型和向量数据库替换当前轻量级 hashing baseline。
+- 将字段定义与候选证据组合为 RAG 上下文，接入 LLM 结构化抽取。
+- 增加扫描 PDF 的 OCR、表格结构识别、单位标准化和 Schema 校验。
+- 增加字段级导出、人工修改率、单位转换准确率和端到端处理耗时评测。
+
+这一区分是刻意保留的：公开仓库只把已经可以从代码和测试中验证的能力标为“已实现”。
+
+## 架构与数据流
+
+```text
+研究需求
+   ↓
+字段 Schema / 筛选规则
+   ↓
+PDF 全文解析 ──→ 证据块（文献、页码、章节、坐标）
+   ↓
+四级文献筛选
+   ↓
+混合候选召回（BM25 + 向量相似度 + 规则特征）
+   ↓
+人工 Gold evidence ──→ Hit@K / Recall@K / Precision@K / MRR
+```
+
+详细设计见 [系统架构与数据流](docs/ARCHITECTURE.md)。
+
+## 快速启动
+
+### 1. 环境要求
+
+- Python 3.9 或更高
+- Node.js 22.13 或更高
+
+### 2. 克隆并安装
+
+macOS / Linux：
+
+```bash
+git clone https://github.com/ZhangHan200005/EcoData_Extraction.git
+cd EcoData_Extraction
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+npm ci
+```
+
+Windows PowerShell 中，Python 安装命令改为：
+
+```powershell
+py -m venv .venv
+.venv\Scripts\python -m pip install -e .
+```
+
+### 3. 启动后端
+
+```bash
+npm run dev:backend
+```
+
+看到 `Uvicorn running on http://127.0.0.1:8771` 后保持终端运行。
+
+### 4. 启动前端
+
+另开一个终端，在同一项目目录执行：
+
+```bash
+npm run dev
+```
+
+打开终端显示的 Local URL，通常是 [http://localhost:3000](http://localhost:3000)。
+
+## 5 分钟 Demo 路线
+
+默认语料目录是仓库内的 `demo/pdfs/`，包含一篇合成论文，不含版权或隐私数据。
+
+1. 在“研究需求”页保留预填需求，点击“解析这段需求”。
+2. 进入“全文解析与筛选”，点击“同步 PDF 全文”。
+3. 确认合成论文被解析，并查看页码、章节和筛选原因。
+4. 在“证据召回审计”中选择一个字段，执行 Top-K 召回并标记 Gold evidence。
+5. 在“量化评估”中查看 Hit@K、Recall@K、Precision@K 和 MRR。
+
+预期证据及人工核对提示见 [Demo 说明](demo/README.md)。如果要换成自己的 PDF，请把文件放入另一个目录后启动：
+
+```bash
+ECODATA_SOURCE_DIR=/你的/PDF/目录 npm run dev:backend
+```
+
+若不想影响默认数据库，可以为实验指定临时数据库：
+
+```bash
+ECODATA_DB_PATH=/tmp/ecoevidence-experiment.sqlite3 npm run dev:backend
+```
+
+## 验证
+
+```bash
+npm run lint
+npm run test:backend
+npm test
+```
+
+`npm test` 会先执行生产构建，再验证服务端渲染页面。后端测试覆盖需求拆解、四级筛选、排序分数组成、API 和评估公式。
+
+## 目录说明
+
+```text
+app/              Next.js 前端工作台
+backend/          FastAPI、PDF 解析、检索、筛选、评估和 SQLite 数据层
+backend_tests/    Python 后端测试
+demo/             可公开的合成 PDF 与预期证据
+docs/             架构和学习文档
+tests/            前端生产构建与服务端渲染测试
+```
+
+核心入口：
+
+- [前端交互](app/page.tsx)
+- [FastAPI 路由](backend/api.py)
+- [业务流程](backend/services.py)
+- [PDF 全文解析](backend/pdf_parser.py)
+- [混合召回](backend/retrieval.py)
+- [检索评估](backend/evaluation.py)
+- [SQLite 数据层](backend/database.py)
+
+## 数据、隐私与限制
+
+运行数据默认保存在 `data/ecoevidence.sqlite3`，数据库已被 Git 忽略。PDF 原件不会被复制到其他位置；数据库只记录来源路径和哈希。
+
+当前 Demo 不是通用生产系统。它暂不支持扫描件 OCR、复杂表格结构还原、真实神经 Embedding、LLM 字段抽取、单位自动标准化或最终结构化导出。对外介绍时，请把这些能力表述为 roadmap 或正在集成，而不是已经完成。
+
+## 继续阅读
+
+- [中文学习与调试指南](docs/LEARNING_GUIDE.md)
+- [系统架构与数据流](docs/ARCHITECTURE.md)
+- [Demo 预期证据](demo/README.md)
