@@ -187,10 +187,27 @@ Third-slice implementation evidence:
 - both systems scored 1.0 on the tiny fixture, so no neural quality gain is
   claimed. Broader multi-paper Gold queries remain the next evidence target.
 
+Fourth-slice implementation evidence:
+
+- `POST /api/retrieve/compare` runs BM25-only, hashing hybrid, and E5 hybrid
+  against the same document, field query, Top K, and verified Gold set;
+- every available strategy persists its own retrieval run with strategy,
+  weights, backend/model/version, cache counts, and elapsed time; BM25-only
+  skips vector encoding rather than computing and discarding embeddings;
+- the retrieval audit UI shows the three rankings side by side, including
+  score components, rank movement relative to BM25, first Gold rank, Hit@K,
+  Recall@K, model identity, and cold/warm latency;
+- the optional E5 column reports an actionable unavailable state when the
+  pinned runtime is absent, while BM25-only and hashing remain runnable;
+- reviewers can mark Gold from any comparison column and load all current
+  document blocks (up to the API's explicit 300-block review limit) for
+  Top-K miss auditing.
+
 Current M2 limitation: the real model path is runnable and measured, but the
 frozen set is too small to establish quality or throughput beyond the bundled
-Demo. The milestone remains **In progress** while Draft PR #4 is reviewed and
-the evidence boundary is kept explicit.
+Demo. Side-by-side interaction makes differences inspectable but does not turn
+the synthetic corpus into representative evidence. The milestone remains **In
+progress** while Draft PR #4 is reviewed and the broader Gold set is built.
 
 Out of scope: LLM generation, OCR, and final field extraction.
 

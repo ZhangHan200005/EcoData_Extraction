@@ -66,7 +66,7 @@ class Settings:
         "ECODATA_MODEL_LOCAL_FILES_ONLY", False
     )
     parser_version: str = "pdfplumber-layout-v1"
-    retrieval_version: str = "hybrid-neural-embedding-v4"
+    retrieval_version: str = "hybrid-neural-embedding-v5"
 
 
 settings = Settings()

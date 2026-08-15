@@ -28,6 +28,7 @@ EcoEvidence 将研究需求拆解为字段 Schema，解析 PDF 全文并生成�
 - 使用 BM25、字符 n-gram hashing 向量相似度、术语覆盖和章节先验进行可解释的混合召回。
 - 使用可替换、带版本元数据的 Embedding backend 契约运行召回；提供固定 revision 的本地 `multilingual-e5-small` 神经 backend，默认仍是离线 hashing baseline，并记录模型标识、运行时参数和耗时。
 - 使用 SQLite 持久化证据块向量，并用文档、文本、backend、模型、参数和维度的组合哈希防止静默复用过期向量。
+- 在“证据召回审计”中对同一论文、字段和 Gold 并排比较 BM25-only、hashing hybrid 与 E5 hybrid，显示排名变化、分数组成、Hit/Recall、首次 Gold 排名、版本和耗时；未安装神经运行时时另外两路仍可用。
 - 支持 `usable`、`relative`、`nodata`、`failed` 四级筛选。
 - 支持人工标记 verified Gold evidence，并计算 Hit@K、Recall@K、Precision@K、MRR。
 - 使用 SQLite 保存本地状态，并以 PDF 哈希复用解析结果。
@@ -136,8 +137,11 @@ npm run dev
 1. 在“研究需求”页保留预填需求，点击“解析这段需求”。
 2. 进入“全文解析与筛选”，点击“同步 PDF 全文”。
 3. 确认合成论文被解析，并查看页码、章节和筛选原因。
-4. 在“证据召回审计”中选择一个字段，执行 Top-K 召回并标记 Gold evidence。
-5. 在“量化评估”中查看 Hit@K、Recall@K、Precision@K 和 MRR。
+4. 在“证据召回审计”中选择一个字段；点击“比较三种方法”查看
+   BM25-only、hashing hybrid 和 E5 hybrid，或运行单路 Top-K 召回。
+5. 直接在结果卡片标记 Gold；再用“全文补漏”的搜索或“浏览全部”检查
+   Top-K 之外的证据块，避免只审核模型已召回的内容。
+6. 在“量化评估”中查看 Hit@K、Recall@K、Precision@K 和 MRR。
 
 预期证据及人工核对提示见 [Demo 说明](demo/README.md)。如果要换成自己的 PDF，请把文件放入另一个目录后启动：
 
@@ -187,7 +191,7 @@ tests/            前端生产构建与服务端渲染测试
 
 运行数据默认保存在 `data/ecoevidence.sqlite3`，数据库已被 Git 忽略。PDF 原件不会被复制到其他位置；数据库只记录来源路径和哈希。
 
-当前 Demo 不是通用生产系统。真实神经 Embedding 已有可选本地运行路径，但只在微型合成 fixture 上验证，尚无跨论文质量提升证据。系统暂不支持扫描件 OCR、复杂表格结构还原、LLM 字段抽取、单位自动标准化或最终结构化导出。对外介绍时，请把未验证能力表述为 roadmap 或正在集成，而不是已经完成。
+当前 Demo 不是通用生产系统。真实神经 Embedding 已有可选本地运行路径和三路交互比较，但只在微型合成 fixture 上验证，尚无跨论文质量提升证据。网页支持按关键词补漏和浏览当前论文最多 300 个证据块；代表性 Gold 集仍需要人工全文审核。系统暂不支持扫描件 OCR、复杂表格结构还原、LLM 字段抽取、单位自动标准化或最终结构化导出。对外介绍时，请把未验证能力表述为 roadmap 或正在集成，而不是已经完成。
 
 ## 继续阅读
 

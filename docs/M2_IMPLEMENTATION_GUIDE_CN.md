@@ -281,3 +281,17 @@ git diff --check
 - 远端覆盖：Python 3.10 core/offline 安装与 19 项后端测试；Python 3.11 综合 lint、19 项后端测试、前端生产构建和 rendered-page 测试。
 - 发布边界：没有提交 470 MB 模型、SQLite 数据、缓存、密钥或临时虚拟环境；远端 CI 没有下载模型。
 - 整体位置：M2 的版本化真实神经检索垂直切片已可运行、可比较、可审计；Roadmap 仍标记 **In progress**，下一证据任务是扩展跨论文、中英文改写和 hard-negative Gold 集，不能用当前 3-query 满分宣称质量提升。
+
+### M2-F008 — 三路交互对比与全文 Gold 补漏
+
+- 时间：2026-08-15
+- 状态：本地实现和交互验收完成，等待提交与远端 CI
+- 事实：新增 `POST /api/retrieve/compare`，对同一论文、字段查询、Top K 和 verified Gold 运行 BM25-only、hashing hybrid、E5 hybrid；每一路仍写入普通 retrieval run，并记录 `comparison_strategy`、权重、backend/model/version、缓存和耗时。
+- BM25 边界：BM25-only 使用 `1/0/0/0` 权重，检索器检测到 vector 权重为零后完全跳过 query/passage embedding 和向量缓存；它不是“算完 embedding 再忽略”。
+- 容错：E5 依赖或本地固定模型不可用时，该列显示 unavailable 和安装提示；BM25-only 与 hashing hybrid 继续返回，不发生静默模型回退。
+- 前端：三列展示 Top-K、相对 BM25 的排名变化、BM25/semantic 分数、Gold 首位、Hit@K、Recall@K、模型身份和耗时；可从任意列直接增删 Gold。Gold 更新后，三列使用同一 Gold 集自动重算。
+- 全文审核：原有关键词补漏之外新增“浏览全部”，当前 API 最多载入 300 个 block，允许人工逐条补充 Top-K 外 Gold。网页可以完成标注操作，但“某段是否真正相关”以及是否已审遍全文仍由人工负责。
+- 真实交互验证：公开合成 PDF 共 12 个 block；三路比较均成功，本机首次 E5 冷启动约 6.25 秒，模型和 block 向量热缓存后约 42 毫秒；Gold 标注后三列均显示首位 `#1`、Hit@8/Recall@8 为 100%。这些数字只描述本机单篇合成 Demo，不是质量或生产延迟结论。
+- 自动验证：本轮新增三策略持久化、BM25 跳过向量、Gold 指标和 E5 unavailable 降级测试；截至本条记录，21 项后端测试、lint、生产构建和 2 项 rendered-page 测试通过；浏览器控制台无 warning/error，700px 视口下三列折为单列且无横向溢出。
+- 深入理解：`backend` 回答“向量由谁生成”，`comparison_strategy` 回答“检索分支如何组合”。BM25 是共享的词法分支，不应被错误描述成 hashing 或 E5 的另一个名字。
+- 整体位置：M2 已从命令行比较推进到可人工审计的交互比较；仍为 **In progress**，下一数据任务是扩大经过人工确认的跨论文、中英文改写和 hard-negative Gold 集。

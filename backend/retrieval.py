@@ -177,6 +177,35 @@ class HashingEmbeddingBackend:
 HashingEmbedder = HashingEmbeddingBackend
 
 
+class DisabledEmbeddingBackend:
+    """Explicit identity for retrieval strategies that do not use vectors."""
+
+    @property
+    def metadata(self) -> RetrievalBackendMetadata:
+        return RetrievalBackendMetadata(
+            backend="disabled",
+            backend_version="v1",
+            model="none",
+            model_version="none",
+            dimensions=1,
+            is_neural=False,
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {"enabled": False}
+
+    @property
+    def runtime_status(self) -> dict[str, Any]:
+        return {"ready": True, "dependency": "none"}
+
+    def encode_query(self, text: str) -> list[float]:
+        raise RuntimeError("Vector encoding is disabled for this strategy")
+
+    def encode_passages(self, texts: list[str]) -> list[list[float]]:
+        raise RuntimeError("Vector encoding is disabled for this strategy")
+
+
 def cosine(left: list[float], right: list[float]) -> float:
     if len(left) != len(right):
         raise ValueError(
@@ -364,62 +393,70 @@ class EvidenceRetriever:
         bm25_raw = BM25Index(block_tokens).scores(query_tokens)
         bm25_scores = _minmax(bm25_raw)
         metadata = self.backend_metadata
-        query_vector = self.embedding_backend.encode_query(query)
-        if len(query_vector) != metadata.dimensions:
-            raise ValueError(
-                "Embedding backend vector length does not match its metadata"
-            )
-        cache_enabled = self.vector_cache is not None and bool(document_sha256)
+        use_vector = self.weights.vector_similarity > 0
+        cache_enabled = (
+            use_vector
+            and self.vector_cache is not None
+            and bool(document_sha256)
+        )
         cache_hits = cache_misses = cache_writes = 0
-        cache_keys = [
-            embedding_cache_key(
-                document_sha256,
-                block,
-                metadata,
-                self.embedding_backend.parameters,
-            )
-            for block in blocks
-        ]
-        cached_vectors = (
-            self.vector_cache.get_embedding_vectors(cache_keys)
-            if cache_enabled and self.vector_cache
-            else {}
-        )
-        missing_indices = [
-            index
-            for index, key in enumerate(cache_keys)
-            if key.cache_key not in cached_vectors
-        ]
-        encoded_missing = self.embedding_backend.encode_passages(
-            [blocks[index].text for index in missing_indices]
-        )
-        if len(encoded_missing) != len(missing_indices):
-            raise ValueError(
-                "Embedding backend returned an unexpected passage count"
-            )
-        encoded_by_index = dict(zip(missing_indices, encoded_missing))
-        pending_writes: list[tuple[EmbeddingCacheKey, list[float]]] = []
-        block_vectors: list[list[float]] = []
-        for index, key in enumerate(cache_keys):
-            vector = cached_vectors.get(key.cache_key)
-            if vector is None:
-                vector = encoded_by_index[index]
-                if cache_enabled and self.vector_cache:
-                    cache_misses += 1
-                    pending_writes.append((key, vector))
-            else:
-                cache_hits += 1
-            if len(vector) != metadata.dimensions:
+        semantic_scores = [0.0] * len(blocks)
+        if use_vector:
+            query_vector = self.embedding_backend.encode_query(query)
+            if len(query_vector) != metadata.dimensions:
                 raise ValueError(
-                    "Embedding vector length does not match backend metadata"
+                    "Embedding backend vector length does not match its metadata"
                 )
-            block_vectors.append(vector)
-        if pending_writes and self.vector_cache:
-            self.vector_cache.save_embedding_vectors(pending_writes)
-            cache_writes = len(pending_writes)
-        semantic_scores = [
-            max(0.0, cosine(query_vector, vector)) for vector in block_vectors
-        ]
+            cache_keys = [
+                embedding_cache_key(
+                    document_sha256,
+                    block,
+                    metadata,
+                    self.embedding_backend.parameters,
+                )
+                for block in blocks
+            ]
+            cached_vectors = (
+                self.vector_cache.get_embedding_vectors(cache_keys)
+                if cache_enabled and self.vector_cache
+                else {}
+            )
+            missing_indices = [
+                index
+                for index, key in enumerate(cache_keys)
+                if key.cache_key not in cached_vectors
+            ]
+            encoded_missing = self.embedding_backend.encode_passages(
+                [blocks[index].text for index in missing_indices]
+            )
+            if len(encoded_missing) != len(missing_indices):
+                raise ValueError(
+                    "Embedding backend returned an unexpected passage count"
+                )
+            encoded_by_index = dict(zip(missing_indices, encoded_missing))
+            pending_writes: list[tuple[EmbeddingCacheKey, list[float]]] = []
+            block_vectors: list[list[float]] = []
+            for index, key in enumerate(cache_keys):
+                vector = cached_vectors.get(key.cache_key)
+                if vector is None:
+                    vector = encoded_by_index[index]
+                    if cache_enabled and self.vector_cache:
+                        cache_misses += 1
+                        pending_writes.append((key, vector))
+                else:
+                    cache_hits += 1
+                if len(vector) != metadata.dimensions:
+                    raise ValueError(
+                        "Embedding vector length does not match backend metadata"
+                    )
+                block_vectors.append(vector)
+            if pending_writes and self.vector_cache:
+                self.vector_cache.save_embedding_vectors(pending_writes)
+                cache_writes = len(pending_writes)
+            semantic_scores = [
+                max(0.0, cosine(query_vector, vector))
+                for vector in block_vectors
+            ]
         expected_sections = self._expected_sections(field_name)
         gold = gold_block_ids or set()
         hits: list[RetrievalHit] = []

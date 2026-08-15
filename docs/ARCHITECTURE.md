@@ -93,6 +93,8 @@ block_id, document_id, ordinal, page, section, kind, text, bbox
 
 API 返回当前 backend/model/version、完整参数和单次耗时，评估结果还返回总检索耗时、评估耗时、平均查询耗时以及逐查询的 Gold/top block ID。测试中的 `fixture-deterministic` 只验证接口替换和报告形状，不是神经模型，也不能作为神经检索收益证据。
 
+交互对比使用独立的 `POST /api/retrieve/compare` 编排入口。它固定同一篇论文、字段查询、Top K 和 verified Gold，依次运行三个可审计策略：BM25-only 使用 `1/0/0/0` 权重并完全跳过向量编码；hashing hybrid 和 E5 hybrid 使用相同的 `0.45/0.35/0.15/0.05` 权重，只替换向量 backend。每一路仍保存普通 `retrieval_runs`，并在参数中记录 `comparison_strategy`，所以交互面板不是脱离审计链的临时计算。E5 是可选能力；其依赖或固定模型不可用时，对比响应只把该策略标记为 unavailable，不会静默回退，也不影响另外两路。
+
 持久化向量使用以下联合身份，任何一项变化都会生成新 cache key，不会静默复用旧向量：
 
 ```text
@@ -117,6 +119,8 @@ document_sha256 + block_id + normalized_text_hash
 - `MRR`：第一条 Gold 排名倒数的平均值。
 
 必须用“全文补漏”找 Top-K 之外的相关证据，否则只审核 Top-K 会产生 verification bias，并虚高 Recall。
+
+网页允许从任意对比结果卡片直接标记 Gold，也可以在“全文补漏”中按关键词搜索或一次载入当前论文的全部证据块（API 明确上限 300）再逐条审核。这个入口减少了只看 Top-K 的偏差，但 Gold 的语义判断仍由人工负责；跨论文代表性、改写等价性和 hard-negative 的最终确认不能由待评估模型自行决定。
 
 评估结果同时报告 Gold 数、查询数、论文数和字段数。覆盖太小时，即使指标是 100%，也不能代表整体性能。
 

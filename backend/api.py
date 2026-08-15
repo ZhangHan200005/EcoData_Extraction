@@ -15,6 +15,7 @@ from .schemas import (
     GoldEvidenceInput,
     GoldEvidenceRecord,
     RequirementInput,
+    RetrievalComparisonResponse,
     RetrievalRequest,
     RetrievalResponse,
     SyncResult,
@@ -117,6 +118,25 @@ def retrieve(payload: RetrievalRequest) -> RetrievalResponse:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EmbeddingBackendUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/retrieve/compare",
+    response_model=RetrievalComparisonResponse,
+)
+def compare_retrieval(
+    payload: RetrievalRequest,
+) -> RetrievalComparisonResponse:
+    try:
+        return service.compare_retrieval(
+            payload.document_id,
+            payload.field_name,
+            payload.k,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -141,6 +141,33 @@ class RetrievalResponse(BaseModel):
     hits: list[RetrievalHit]
 
 
+class RetrievalComparisonMetrics(BaseModel):
+    gold_count: int = Field(ge=0)
+    first_gold_rank: Optional[int] = Field(default=None, ge=1)
+    hit_at_k: Optional[float] = Field(default=None, ge=0, le=1)
+    recall_at_k: Optional[float] = Field(default=None, ge=0, le=1)
+    reciprocal_rank: Optional[float] = Field(default=None, ge=0, le=1)
+
+
+class RetrievalComparisonItem(BaseModel):
+    strategy: Literal["bm25-only", "hashing-hybrid", "e5-hybrid"]
+    label: str
+    status: Literal["available", "unavailable"]
+    retrieval: Optional[RetrievalResponse] = None
+    metrics: Optional[RetrievalComparisonMetrics] = None
+    error: str = ""
+
+
+class RetrievalComparisonResponse(BaseModel):
+    comparison_id: str
+    document_id: str
+    field_name: str
+    query: str
+    k: int = Field(ge=1, le=30)
+    gold_status: Literal["verified"] = "verified"
+    items: list[RetrievalComparisonItem]
+
+
 class GoldEvidenceInput(BaseModel):
     document_id: str
     field_name: str

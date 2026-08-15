@@ -8,9 +8,15 @@ from contextlib import closing
 from pathlib import Path
 
 from backend.database import Repository
+from backend.embedding_backends import EmbeddingBackendUnavailableError
 from backend.evaluation import RetrievalEvaluator
 from backend.requirement_interpreter import RequirementInterpreter
-from backend.retrieval import EvidenceRetriever
+from backend.retrieval import (
+    DisabledEmbeddingBackend,
+    EvidenceRetriever,
+    HashingEmbeddingBackend,
+    RetrievalWeights,
+)
 from backend.schemas import (
     EvaluationRequest,
     GoldEvidenceRecord,
@@ -140,6 +146,109 @@ class RetrievalEvaluationTests(unittest.TestCase):
             len(self.blocks),
             self.repository.embedding_vector_count(),
         )
+
+    def test_interactive_comparison_runs_three_audited_strategies(self) -> None:
+        self.repository.save_spec(
+            "spec-comparison", self.spec, "2026-01-01T00:00:00+00:00"
+        )
+        gold_block = self.blocks[2]
+        self.repository.save_gold(
+            GoldEvidenceRecord(
+                gold_id="gold-comparison",
+                document_id=gold_block.document_id,
+                field_name="stem_respiration_rate",
+                block_id=gold_block.block_id,
+                status="verified",
+                note="comparison gold",
+                created_at="2026-01-01T00:00:00+00:00",
+            )
+        )
+        comparison_retrievers = {
+            "bm25-only": EvidenceRetriever(
+                DisabledEmbeddingBackend(),
+                weights=RetrievalWeights(
+                    bm25=1.0,
+                    vector_similarity=0.0,
+                    term_coverage=0.0,
+                    section_prior=0.0,
+                ),
+            ),
+            "hashing-hybrid": EvidenceRetriever(
+                HashingEmbeddingBackend(),
+                vector_cache=self.repository,
+            ),
+            "e5-hybrid": EvidenceRetriever(
+                DeterministicFixtureEmbeddingBackend(),
+                vector_cache=self.repository,
+            ),
+        }
+        service = EcoEvidenceService(
+            self.repository,
+            comparison_retrievers=comparison_retrievers,
+        )
+
+        comparison = service.compare_retrieval(
+            "doc-test", "stem_respiration_rate", 3
+        )
+
+        self.assertEqual(
+            ["bm25-only", "hashing-hybrid", "e5-hybrid"],
+            [item.strategy for item in comparison.items],
+        )
+        self.assertTrue(
+            all(item.status == "available" for item in comparison.items)
+        )
+        self.assertEqual(1, comparison.items[0].metrics.gold_count)
+        self.assertEqual(1, comparison.items[0].metrics.first_gold_rank)
+        self.assertEqual(1.0, comparison.items[0].metrics.hit_at_k)
+        bm25_response = comparison.items[0].retrieval
+        assert bm25_response is not None
+        self.assertEqual(
+            "bm25-only",
+            bm25_response.parameters["comparison_strategy"],
+        )
+        self.assertEqual(
+            0.0,
+            bm25_response.parameters["weights"]["vector_similarity"],
+        )
+        self.assertFalse(bm25_response.cache.enabled)
+        self.assertEqual("disabled", bm25_response.backend.backend)
+        self.assertTrue(
+            all(hit.score_components["semantic"] == 0 for hit in bm25_response.hits)
+        )
+        for item in comparison.items:
+            assert item.retrieval is not None
+            saved = self.repository.retrieval_run(item.retrieval.run_id)
+            self.assertIsNotNone(saved)
+            assert saved is not None
+            self.assertEqual(
+                item.strategy,
+                saved["parameters"]["comparison_strategy"],
+            )
+
+    def test_comparison_reports_optional_neural_backend_as_unavailable(self) -> None:
+        class UnavailableBackend(DeterministicFixtureEmbeddingBackend):
+            def encode_query(self, text: str) -> list[float]:
+                raise EmbeddingBackendUnavailableError("neural runtime missing")
+
+        self.repository.save_spec(
+            "spec-unavailable", self.spec, "2026-01-01T00:00:00+00:00"
+        )
+        service = EcoEvidenceService(
+            self.repository,
+            comparison_retrievers={
+                "e5-hybrid": EvidenceRetriever(UnavailableBackend()),
+            },
+        )
+
+        comparison = service.compare_retrieval(
+            "doc-test", "stem_respiration_rate", 3
+        )
+
+        self.assertEqual("available", comparison.items[0].status)
+        self.assertEqual("available", comparison.items[1].status)
+        self.assertEqual("unavailable", comparison.items[2].status)
+        self.assertIn("neural runtime missing", comparison.items[2].error)
 
     def test_vector_cache_invalidates_on_identity_or_content_change(self) -> None:
         first_backend = DeterministicFixtureEmbeddingBackend()
