@@ -6,13 +6,16 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Repository, initialize_database
+from .embedding_backends import EmbeddingBackendUnavailableError
 from .evaluation import RetrievalEvaluator
+from .retrieval import EMBEDDING_CACHE_KEY_VERSION
 from .schemas import (
     EvaluationRequest,
     EvaluationResponse,
     GoldEvidenceInput,
     GoldEvidenceRecord,
     RequirementInput,
+    RetrievalComparisonResponse,
     RetrievalRequest,
     RetrievalResponse,
     SyncResult,
@@ -51,6 +54,14 @@ def health() -> dict:
         "database_path": str(settings.database_path),
         "parser_version": settings.parser_version,
         "retrieval_version": settings.retrieval_version,
+        "retrieval_backend": service.retriever.backend_metadata.model_dump(),
+        "retrieval_backend_runtime": (
+            service.retriever.backend_runtime_status
+        ),
+        "vector_cache": {
+            "enabled": service.retriever.cache_enabled,
+            "key_version": EMBEDDING_CACHE_KEY_VERSION,
+        },
     }
 
 
@@ -105,6 +116,27 @@ def retrieve(payload: RetrievalRequest) -> RetrievalResponse:
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except EmbeddingBackendUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/retrieve/compare",
+    response_model=RetrievalComparisonResponse,
+)
+def compare_retrieval(
+    payload: RetrievalRequest,
+) -> RetrievalComparisonResponse:
+    try:
+        return service.compare_retrieval(
+            payload.document_id,
+            payload.field_name,
+            payload.k,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -137,4 +169,7 @@ def evaluate(payload: EvaluationRequest) -> EvaluationResponse:
     spec = service.current_spec()
     if not spec:
         raise HTTPException(status_code=400, detail="请先解释并确认研究需求。")
-    return evaluator.evaluate(spec, payload)
+    try:
+        return evaluator.evaluate(spec, payload)
+    except EmbeddingBackendUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

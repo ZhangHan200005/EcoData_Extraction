@@ -10,6 +10,25 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    value = int(os.environ.get(name, str(default)))
+    if value < 1:
+        raise ValueError(f"{name} must be at least 1")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     project_root: Path = PROJECT_ROOT
@@ -28,8 +47,26 @@ class Settings:
             str(PROJECT_ROOT / "data" / "ecoevidence.sqlite3"),
         )
     ).resolve()
+    model_cache_directory: Path = Path(
+        os.environ.get(
+            "ECODATA_MODEL_CACHE_DIR",
+            str(PROJECT_ROOT / "data" / "models"),
+        )
+    ).resolve()
+    retrieval_backend: str = os.environ.get(
+        "ECODATA_RETRIEVAL_BACKEND", "hashing"
+    ).strip()
+    embedding_device: str = os.environ.get(
+        "ECODATA_EMBEDDING_DEVICE", "cpu"
+    ).strip()
+    embedding_batch_size: int = _env_positive_int(
+        "ECODATA_EMBEDDING_BATCH_SIZE", 32
+    )
+    embedding_local_files_only: bool = _env_bool(
+        "ECODATA_MODEL_LOCAL_FILES_ONLY", False
+    )
     parser_version: str = "pdfplumber-layout-v1"
-    retrieval_version: str = "hybrid-bm25-hash-v1"
+    retrieval_version: str = "hybrid-neural-embedding-v5"
 
 
 settings = Settings()

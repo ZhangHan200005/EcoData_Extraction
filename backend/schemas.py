@@ -92,14 +92,80 @@ class RetrievalHit(BaseModel):
     is_gold: bool = False
 
 
+class RetrievalBackendMetadata(BaseModel):
+    """Versioned identity for the vector-producing retrieval backend."""
+
+    backend: str
+    backend_version: str
+    model: str
+    model_version: str
+    dimensions: int = Field(ge=1)
+    is_neural: bool
+
+
+class EmbeddingCacheKey(BaseModel):
+    """Content- and version-addressed identity for one cached block vector."""
+
+    cache_key: str
+    cache_key_version: str
+    document_sha256: str
+    block_id: str
+    normalized_text_sha256: str
+    backend: str
+    backend_version: str
+    model: str
+    model_version: str
+    dimensions: int = Field(ge=1)
+    parameters_sha256: str
+
+
+class RetrievalCacheStats(BaseModel):
+    enabled: bool
+    hits: int = Field(ge=0)
+    misses: int = Field(ge=0)
+    writes: int = Field(ge=0)
+
+
 class RetrievalResponse(BaseModel):
     run_id: str
     document_id: str
     field_name: str
     query: str
     retrieval_version: str
+    backend: RetrievalBackendMetadata
+    parameters: dict[str, Any]
+    query_count: int = 1
     total_blocks: int
+    elapsed_ms: float = Field(ge=0)
+    cache: RetrievalCacheStats
     hits: list[RetrievalHit]
+
+
+class RetrievalComparisonMetrics(BaseModel):
+    gold_count: int = Field(ge=0)
+    first_gold_rank: Optional[int] = Field(default=None, ge=1)
+    hit_at_k: Optional[float] = Field(default=None, ge=0, le=1)
+    recall_at_k: Optional[float] = Field(default=None, ge=0, le=1)
+    reciprocal_rank: Optional[float] = Field(default=None, ge=0, le=1)
+
+
+class RetrievalComparisonItem(BaseModel):
+    strategy: Literal["bm25-only", "hashing-hybrid", "e5-hybrid"]
+    label: str
+    status: Literal["available", "unavailable"]
+    retrieval: Optional[RetrievalResponse] = None
+    metrics: Optional[RetrievalComparisonMetrics] = None
+    error: str = ""
+
+
+class RetrievalComparisonResponse(BaseModel):
+    comparison_id: str
+    document_id: str
+    field_name: str
+    query: str
+    k: int = Field(ge=1, le=30)
+    gold_status: Literal["verified"] = "verified"
+    items: list[RetrievalComparisonItem]
 
 
 class GoldEvidenceInput(BaseModel):
@@ -124,8 +190,11 @@ class EvaluationResponse(BaseModel):
     evaluation_id: str
     generated_at: str
     retrieval_version: str
+    backend: RetrievalBackendMetadata
+    parameters: dict[str, Any]
     gold_status: str
     coverage: dict[str, int]
+    timing: dict[str, float]
     metrics_at_k: dict[str, dict[str, float]]
     mean_reciprocal_rank: float
     per_field: list[dict[str, Any]]

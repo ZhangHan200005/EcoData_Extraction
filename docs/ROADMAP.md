@@ -33,13 +33,15 @@ Implemented and tested:
 - document, page, section, block, and bounding-box provenance;
 - `usable`, `relative`, `nodata`, and `failed` screening states;
 - BM25 + character n-gram hashing + terminology + section-prior retrieval;
+- optional pinned `multilingual-e5-small` local neural retrieval;
 - local SQLite state and PDF-hash-based parse reuse;
 - human Gold evidence marking and retrieval metrics;
 - bundled synthetic PDF Demo, frontend workbench, backend tests, and CI.
 
 Not yet implemented as production-ready functionality:
 
-- neural Embedding generation and a persistent vector index;
+- representative multi-paper neural-retrieval quality and throughput evidence;
+- approximate nearest-neighbor indexing for corpora where exact scan is too slow;
 - LLM schema-guided structured extraction and RAG generation;
 - final field-level provenance manifests and structured export;
 - OCR for scanned PDFs and robust table structure extraction;
@@ -53,7 +55,7 @@ Not yet implemented as production-ready functionality:
 | --- | --- | --- | --- |
 | M0 | Reproducible portfolio baseline | Completed | Public Demo, README, tests, CI, PR #1 |
 | M1 | Repository rules and measurable Roadmap | Completed | `AGENTS.md`, this Roadmap, PR #2 |
-| M2 | Versioned neural Embedding and Vector Retrieval | Planned | Baseline comparison with Hit@K, Recall@K, MRR, latency |
+| M2 | Versioned neural Embedding and Vector Retrieval | In progress | Baseline comparison with Hit@K, Recall@K, MRR, latency |
 | M3 | Schema-guided RAG structured extraction | Planned | Validated field output with evidence and offline tests |
 | M4 | Field provenance, quality rules, and export | Planned | Traceable manifest plus JSON/CSV export |
 | M5 | OCR and table-aware parsing | Planned | Scanned/table fixtures with parsing and recall tests |
@@ -99,7 +101,8 @@ Out of scope: retrieval or product behavior changes.
 
 ## M2 — Versioned neural Embedding and Vector Retrieval
 
-Status: **Planned** — recommended next development milestone
+Status: **In progress** — branch `feature/embedding-retrieval`; Draft PR
+[#4](https://github.com/ZhangHan200005/EcoData_Extraction/pull/4)
 
 Goal: introduce a real semantic retrieval backend without losing the current
 offline, explainable baseline or the ability to compare results.
@@ -133,6 +136,78 @@ Two-hour first slice:
 - add a deterministic comparison fixture with multiple field queries;
 - add a benchmark/report shape that the neural implementation can fill;
 - avoid claiming a neural gain until the actual model has been run.
+
+First-slice implementation evidence:
+
+- `EmbeddingBackend` defines a replaceable vector encoder contract with backend,
+  model, version, dimension, parameters, and neural/non-neural metadata;
+- the existing character n-gram hashing implementation remains the active,
+  dependency-free default and retains the original hybrid ranking weights;
+- retrieval runs persist backend/model identity, parameters, query count, corpus
+  size, and elapsed time through a non-destructive SQLite schema migration;
+- evaluation reports backend metadata, retrieval/evaluation latency, corpus work,
+  and inspectable Gold/top-block IDs for each query;
+- `synthetic-retrieval-comparison-v1` covers three fields over four synthetic
+  blocks and runs both the production hashing backend and a clearly test-only,
+  deterministic backend without network access or credentials. Configuration,
+  reproducible command, fixture-scale results, and limitations are recorded in
+  [the M2 first-slice evaluation](M2_RETRIEVAL_EVALUATION.md).
+
+First-slice limitation: this slice proved the versioned interface and
+comparison path, not a production neural model or a neural quality improvement.
+
+Second-slice implementation evidence:
+
+- SQLite now persists block vectors in `embedding_vectors` and reads/writes a
+  whole retrieval corpus through one connection rather than one connection per
+  block;
+- cache identity includes document SHA-256, block ID, normalized-text SHA-256,
+  backend/model versions, dimensions, embedding-parameter SHA-256, and an
+  explicit cache-key version;
+- cold, warm, document-change, text-change, model-version-change, and
+  parameter-change paths are covered by offline tests;
+- retrieval runs, evaluation reports, health output, and the UI expose cache
+  enabled/hit/miss/write state;
+- the local learning and implementation history is maintained in
+  [the Chinese M2 guide](M2_IMPLEMENTATION_GUIDE_CN.md).
+
+Third-slice implementation evidence:
+
+- the optional local backend pins `intfloat/multilingual-e5-small` to commit
+  `614241f622f53c4eeff9890bdc4f31cfecc418b3` and pins Sentence Transformers,
+  Transformers, and PyTorch runtime versions;
+- the model is lazy-loaded, uses asymmetric `query: ` / `passage: ` prefixes,
+  batches cold passage encoding, normalizes vectors, and never silently falls
+  back to hashing after the user selects the neural backend;
+- core install and CI remain offline and model-free; a separate optional extra
+  enables the real local path, and Python 3.10 compatibility has its own CI job;
+- a frozen three-query synthetic comparison ran from local cached weights and
+  reported Hit@1, Recall@1, MRR, latency, cache counts, backend/model versions,
+  and per-query ranks for both hashing and the real model;
+- both systems scored 1.0 on the tiny fixture, so no neural quality gain is
+  claimed. Broader multi-paper Gold queries remain the next evidence target.
+
+Fourth-slice implementation evidence:
+
+- `POST /api/retrieve/compare` runs BM25-only, hashing hybrid, and E5 hybrid
+  against the same document, field query, Top K, and verified Gold set;
+- every available strategy persists its own retrieval run with strategy,
+  weights, backend/model/version, cache counts, and elapsed time; BM25-only
+  skips vector encoding rather than computing and discarding embeddings;
+- the retrieval audit UI shows the three rankings side by side, including
+  score components, rank movement relative to BM25, first Gold rank, Hit@K,
+  Recall@K, model identity, and cold/warm latency;
+- the optional E5 column reports an actionable unavailable state when the
+  pinned runtime is absent, while BM25-only and hashing remain runnable;
+- reviewers can mark Gold from any comparison column and load all current
+  document blocks (up to the API's explicit 300-block review limit) for
+  Top-K miss auditing.
+
+Current M2 limitation: the real model path is runnable and measured, but the
+frozen set is too small to establish quality or throughput beyond the bundled
+Demo. Side-by-side interaction makes differences inspectable but does not turn
+the synthetic corpus into representative evidence. The milestone remains **In
+progress** while Draft PR #4 is reviewed and the broader Gold set is built.
 
 Out of scope: LLM generation, OCR, and final field extraction.
 

@@ -3,15 +3,26 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 from collections import Counter
 from dataclasses import dataclass
+from time import perf_counter
+from typing import Any, Protocol
 
-from .schemas import BlockRecord, ProjectSpec, RetrievalHit
+from .schemas import (
+    BlockRecord,
+    EmbeddingCacheKey,
+    ProjectSpec,
+    RetrievalBackendMetadata,
+    RetrievalCacheStats,
+    RetrievalHit,
+)
 
 
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9₂⁻−-]*|\d+(?:\.\d+)?|[\u4e00-\u9fff]+")
+EMBEDDING_CACHE_KEY_VERSION = "embedding-cache-key-v1"
 
 
 def normalize(text: str) -> str:
@@ -33,16 +44,117 @@ def tokenize(text: str) -> list[str]:
     return [token for token in tokens if token.strip()]
 
 
-class HashingEmbedder:
-    """Dependency-free character n-gram vector baseline for zh/en retrieval."""
+class EmbeddingBackend(Protocol):
+    """Minimal contract shared by baseline and neural encoders."""
 
-    def __init__(self, dimensions: int = 384) -> None:
+    @property
+    def metadata(self) -> RetrievalBackendMetadata: ...
+
+    @property
+    def parameters(self) -> dict[str, Any]: ...
+
+    @property
+    def runtime_status(self) -> dict[str, Any]: ...
+
+    def encode_query(self, text: str) -> list[float]: ...
+
+    def encode_passages(self, texts: list[str]) -> list[list[float]]: ...
+
+
+def embedding_cache_key(
+    document_sha256: str,
+    block: BlockRecord,
+    metadata: RetrievalBackendMetadata,
+    parameters: dict[str, Any],
+) -> EmbeddingCacheKey:
+    canonical_parameters = json.dumps(
+        parameters,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    identity = {
+        "cache_key_version": EMBEDDING_CACHE_KEY_VERSION,
+        "document_sha256": document_sha256,
+        "block_id": block.block_id,
+        "normalized_text_sha256": hashlib.sha256(
+            normalize(block.text).encode("utf-8")
+        ).hexdigest(),
+        "backend": metadata.backend,
+        "backend_version": metadata.backend_version,
+        "model": metadata.model,
+        "model_version": metadata.model_version,
+        "dimensions": metadata.dimensions,
+        "parameters_sha256": hashlib.sha256(
+            canonical_parameters.encode("utf-8")
+        ).hexdigest(),
+    }
+    canonical_identity = json.dumps(
+        identity,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return EmbeddingCacheKey(
+        cache_key=hashlib.sha256(
+            canonical_identity.encode("utf-8")
+        ).hexdigest(),
+        **identity,
+    )
+
+
+class EmbeddingVectorCache(Protocol):
+    def get_embedding_vectors(
+        self, keys: list[EmbeddingCacheKey]
+    ) -> dict[str, list[float]]: ...
+
+    def save_embedding_vectors(
+        self, records: list[tuple[EmbeddingCacheKey, list[float]]]
+    ) -> None: ...
+
+
+class HashingEmbeddingBackend:
+    """Dependency-free character n-gram baseline; explicitly non-neural."""
+
+    def __init__(
+        self,
+        dimensions: int = 384,
+        ngram_widths: tuple[int, ...] = (2, 3, 4),
+    ) -> None:
         self.dimensions = dimensions
+        self.ngram_widths = ngram_widths
 
-    def encode(self, text: str) -> list[float]:
+    @property
+    def metadata(self) -> RetrievalBackendMetadata:
+        return RetrievalBackendMetadata(
+            backend="hashing",
+            backend_version="v1",
+            model="blake2b-character-ngram",
+            model_version="2-4gram-v1",
+            dimensions=self.dimensions,
+            is_neural=False,
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "dimensions": self.dimensions,
+            "ngram_widths": list(self.ngram_widths),
+            "normalization": "l2",
+        }
+
+    @property
+    def runtime_status(self) -> dict[str, Any]:
+        return {
+            "ready": True,
+            "dependency": "python-standard-library",
+            "dependency_version": "builtin",
+        }
+
+    def _encode(self, text: str) -> list[float]:
         compact = re.sub(r"\s+", " ", normalize(text))
         vector = [0.0] * self.dimensions
-        for width in (2, 3, 4):
+        for width in self.ngram_widths:
             for index in range(max(0, len(compact) - width + 1)):
                 gram = compact[index : index + width]
                 digest = hashlib.blake2b(
@@ -54,8 +166,51 @@ class HashingEmbedder:
         norm = math.sqrt(sum(value * value for value in vector))
         return [value / norm for value in vector] if norm else vector
 
+    def encode_query(self, text: str) -> list[float]:
+        return self._encode(text)
+
+    def encode_passages(self, texts: list[str]) -> list[list[float]]:
+        return [self._encode(text) for text in texts]
+
+
+# Backward-compatible name for callers that used the original baseline class.
+HashingEmbedder = HashingEmbeddingBackend
+
+
+class DisabledEmbeddingBackend:
+    """Explicit identity for retrieval strategies that do not use vectors."""
+
+    @property
+    def metadata(self) -> RetrievalBackendMetadata:
+        return RetrievalBackendMetadata(
+            backend="disabled",
+            backend_version="v1",
+            model="none",
+            model_version="none",
+            dimensions=1,
+            is_neural=False,
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {"enabled": False}
+
+    @property
+    def runtime_status(self) -> dict[str, Any]:
+        return {"ready": True, "dependency": "none"}
+
+    def encode_query(self, text: str) -> list[float]:
+        raise RuntimeError("Vector encoding is disabled for this strategy")
+
+    def encode_passages(self, texts: list[str]) -> list[list[float]]:
+        raise RuntimeError("Vector encoding is disabled for this strategy")
+
 
 def cosine(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right):
+        raise ValueError(
+            "Embedding backend returned vectors with inconsistent dimensions"
+        )
     return sum(a * b for a, b in zip(left, right))
 
 
@@ -143,9 +298,72 @@ FIELD_HINTS: dict[str, list[str]] = {
 }
 
 
+@dataclass(frozen=True)
+class RetrievalWeights:
+    bm25: float = 0.45
+    vector_similarity: float = 0.35
+    term_coverage: float = 0.15
+    section_prior: float = 0.05
+
+    def __post_init__(self) -> None:
+        values = self.as_dict().values()
+        if any(value < 0 for value in values):
+            raise ValueError("Retrieval weights must be non-negative")
+        if not math.isclose(sum(values), 1.0):
+            raise ValueError("Retrieval weights must sum to 1.0")
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "bm25": self.bm25,
+            "vector_similarity": self.vector_similarity,
+            "term_coverage": self.term_coverage,
+            "section_prior": self.section_prior,
+        }
+
+
+@dataclass(frozen=True)
+class RankedEvidence:
+    query: str
+    hits: list[RetrievalHit]
+    elapsed_ms: float
+    cache: RetrievalCacheStats
+
+
 class EvidenceRetriever:
-    def __init__(self, dimensions: int = 384) -> None:
-        self.embedder = HashingEmbedder(dimensions)
+    def __init__(
+        self,
+        embedding_backend: EmbeddingBackend | None = None,
+        weights: RetrievalWeights | None = None,
+        vector_cache: EmbeddingVectorCache | None = None,
+    ) -> None:
+        self.embedding_backend = embedding_backend or HashingEmbeddingBackend()
+        self.weights = weights or RetrievalWeights()
+        self.vector_cache = vector_cache
+
+    @property
+    def backend_metadata(self) -> RetrievalBackendMetadata:
+        return self.embedding_backend.metadata
+
+    @property
+    def cache_enabled(self) -> bool:
+        return self.vector_cache is not None
+
+    @property
+    def backend_runtime_status(self) -> dict[str, Any]:
+        return self.embedding_backend.runtime_status
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "weights": self.weights.as_dict(),
+            "embedding": self.embedding_backend.parameters,
+            "bm25": {"k1": 1.5, "b": 0.75},
+            "vector_cache": {
+                "enabled": self.cache_enabled,
+                "key_version": EMBEDDING_CACHE_KEY_VERSION,
+                "storage": "sqlite-json" if self.cache_enabled else "none",
+            },
+        }
 
     @staticmethod
     def query_for(field_name: str, spec: ProjectSpec) -> tuple[str, list[str]]:
@@ -166,17 +384,79 @@ class EvidenceRetriever:
         field_name: str,
         spec: ProjectSpec,
         gold_block_ids: set[str] | None = None,
-    ) -> tuple[str, list[RetrievalHit]]:
+        document_sha256: str = "",
+    ) -> RankedEvidence:
+        started_at = perf_counter()
         query, terms = self.query_for(field_name, spec)
         query_tokens = tokenize(query)
         block_tokens = [tokenize(block.text) for block in blocks]
         bm25_raw = BM25Index(block_tokens).scores(query_tokens)
         bm25_scores = _minmax(bm25_raw)
-        query_vector = self.embedder.encode(query)
-        semantic_scores = [
-            max(0.0, cosine(query_vector, self.embedder.encode(block.text)))
-            for block in blocks
-        ]
+        metadata = self.backend_metadata
+        use_vector = self.weights.vector_similarity > 0
+        cache_enabled = (
+            use_vector
+            and self.vector_cache is not None
+            and bool(document_sha256)
+        )
+        cache_hits = cache_misses = cache_writes = 0
+        semantic_scores = [0.0] * len(blocks)
+        if use_vector:
+            query_vector = self.embedding_backend.encode_query(query)
+            if len(query_vector) != metadata.dimensions:
+                raise ValueError(
+                    "Embedding backend vector length does not match its metadata"
+                )
+            cache_keys = [
+                embedding_cache_key(
+                    document_sha256,
+                    block,
+                    metadata,
+                    self.embedding_backend.parameters,
+                )
+                for block in blocks
+            ]
+            cached_vectors = (
+                self.vector_cache.get_embedding_vectors(cache_keys)
+                if cache_enabled and self.vector_cache
+                else {}
+            )
+            missing_indices = [
+                index
+                for index, key in enumerate(cache_keys)
+                if key.cache_key not in cached_vectors
+            ]
+            encoded_missing = self.embedding_backend.encode_passages(
+                [blocks[index].text for index in missing_indices]
+            )
+            if len(encoded_missing) != len(missing_indices):
+                raise ValueError(
+                    "Embedding backend returned an unexpected passage count"
+                )
+            encoded_by_index = dict(zip(missing_indices, encoded_missing))
+            pending_writes: list[tuple[EmbeddingCacheKey, list[float]]] = []
+            block_vectors: list[list[float]] = []
+            for index, key in enumerate(cache_keys):
+                vector = cached_vectors.get(key.cache_key)
+                if vector is None:
+                    vector = encoded_by_index[index]
+                    if cache_enabled and self.vector_cache:
+                        cache_misses += 1
+                        pending_writes.append((key, vector))
+                else:
+                    cache_hits += 1
+                if len(vector) != metadata.dimensions:
+                    raise ValueError(
+                        "Embedding vector length does not match backend metadata"
+                    )
+                block_vectors.append(vector)
+            if pending_writes and self.vector_cache:
+                self.vector_cache.save_embedding_vectors(pending_writes)
+                cache_writes = len(pending_writes)
+            semantic_scores = [
+                max(0.0, cosine(query_vector, vector))
+                for vector in block_vectors
+            ]
         expected_sections = self._expected_sections(field_name)
         gold = gold_block_ids or set()
         hits: list[RetrievalHit] = []
@@ -198,10 +478,10 @@ class EvidenceRetriever:
                 else 0.15
             )
             score = (
-                0.45 * bm25_scores[index]
-                + 0.35 * semantic_scores[index]
-                + 0.15 * lexical_coverage
-                + 0.05 * section_prior
+                self.weights.bm25 * bm25_scores[index]
+                + self.weights.vector_similarity * semantic_scores[index]
+                + self.weights.term_coverage * lexical_coverage
+                + self.weights.section_prior * section_prior
             )
             hits.append(
                 RetrievalHit(
@@ -221,7 +501,17 @@ class EvidenceRetriever:
         hits.sort(key=lambda hit: (-hit.score, hit.block.ordinal))
         for rank, hit in enumerate(hits, 1):
             hit.rank = rank
-        return query, hits
+        return RankedEvidence(
+            query=query,
+            hits=hits,
+            elapsed_ms=round((perf_counter() - started_at) * 1000, 6),
+            cache=RetrievalCacheStats(
+                enabled=cache_enabled,
+                hits=cache_hits,
+                misses=cache_misses,
+                writes=cache_writes,
+            ),
+        )
 
     @staticmethod
     def _expected_sections(field_name: str) -> set[str]:

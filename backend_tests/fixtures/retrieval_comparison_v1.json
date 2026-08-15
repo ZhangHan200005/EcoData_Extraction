@@ -1,0 +1,40 @@
+{
+  "fixture_id": "synthetic-retrieval-comparison-v1",
+  "brief": "提取树干呼吸速率数据，必须报告物种，并关注研究站点。",
+  "blocks": [
+    {
+      "ordinal": 1,
+      "section": "methods",
+      "text": "The experiment was conducted at the Alpine Forest Research Site."
+    },
+    {
+      "ordinal": 2,
+      "section": "methods",
+      "text": "The measured species was Pinus sylvestris, with five mature trees sampled."
+    },
+    {
+      "ordinal": 3,
+      "section": "results",
+      "text": "Mean stem respiration was 1.8 µmol CO2 m-2 s-1 at 20 °C."
+    },
+    {
+      "ordinal": 4,
+      "section": "results",
+      "text": "Soil water content varied during the observation season."
+    }
+  ],
+  "queries": [
+    {
+      "field_name": "stem_respiration_rate",
+      "gold_ordinal": 3
+    },
+    {
+      "field_name": "species",
+      "gold_ordinal": 2
+    },
+    {
+      "field_name": "site_name",
+      "gold_ordinal": 1
+    }
+  ]
+}

@@ -74,18 +74,69 @@ type RetrievalHit = {
   is_gold: boolean;
 };
 
+type RetrievalBackend = {
+  backend: string;
+  backend_version: string;
+  model: string;
+  model_version: string;
+  dimensions: number;
+  is_neural: boolean;
+};
+
+type RetrievalCacheStats = {
+  enabled: boolean;
+  hits: number;
+  misses: number;
+  writes: number;
+};
+
 type RetrievalResponse = {
   run_id: string;
   field_name: string;
   query: string;
   retrieval_version: string;
+  backend: RetrievalBackend;
+  parameters: Record<string, unknown>;
+  query_count: number;
   total_blocks: number;
+  elapsed_ms: number;
+  cache: RetrievalCacheStats;
   hits: RetrievalHit[];
+};
+
+type RetrievalComparisonMetrics = {
+  gold_count: number;
+  first_gold_rank: number | null;
+  hit_at_k: number | null;
+  recall_at_k: number | null;
+  reciprocal_rank: number | null;
+};
+
+type RetrievalComparisonItem = {
+  strategy: "bm25-only" | "hashing-hybrid" | "e5-hybrid";
+  label: string;
+  status: "available" | "unavailable";
+  retrieval: RetrievalResponse | null;
+  metrics: RetrievalComparisonMetrics | null;
+  error: string;
+};
+
+type RetrievalComparison = {
+  comparison_id: string;
+  document_id: string;
+  field_name: string;
+  query: string;
+  k: number;
+  gold_status: "verified";
+  items: RetrievalComparisonItem[];
 };
 
 type Evaluation = {
   generated_at: string;
   retrieval_version: string;
+  backend?: RetrievalBackend;
+  parameters?: Record<string, unknown>;
+  timing?: Record<string, number>;
   coverage: Record<string, number>;
   metrics_at_k: Record<
     string,
@@ -202,6 +253,8 @@ export default function Home() {
   const [topK, setTopK] = useState(8);
   const [retrieval, setRetrieval] =
     useState<RetrievalResponse | null>(null);
+  const [comparison, setComparison] =
+    useState<RetrievalComparison | null>(null);
   const [blockQuery, setBlockQuery] = useState("");
   const [blockSearch, setBlockSearch] = useState<BlockRecord[]>([]);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
@@ -327,7 +380,42 @@ export default function Home() {
   const runRetrieval = () =>
     runAction("retrieve", async () => {
       const result = await fetchRetrieval();
+      setComparison(null);
       setNotice(`已从 ${result.total_blocks} 个全文证据块中返回 Top ${topK}。`);
+    });
+
+  const fetchComparison = async () => {
+    if (!selectedDocumentId || !selectedField) {
+      throw new Error("请选择论文和检索字段。");
+    }
+    const result = await api<RetrievalComparison>(
+      "/api/retrieve/compare",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          document_id: selectedDocumentId,
+          field_name: selectedField,
+          k: topK,
+        }),
+      },
+    );
+    setComparison(result);
+    const hashing = result.items.find(
+      (item) => item.strategy === "hashing-hybrid",
+    );
+    setRetrieval(hashing?.retrieval ?? null);
+    return result;
+  };
+
+  const runComparison = () =>
+    runAction("compare", async () => {
+      const result = await fetchComparison();
+      const available = result.items.filter(
+        (item) => item.status === "available",
+      ).length;
+      setNotice(
+        `已完成 ${available}/${result.items.length} 种策略的同查询对照；下方保留 hashing 结果用于全文补漏。`,
+      );
     });
 
   const addGold = (block: BlockRecord) =>
@@ -343,7 +431,8 @@ export default function Home() {
         }),
       });
       await refresh();
-      if (retrieval) await fetchRetrieval();
+      if (comparison) await fetchComparison();
+      else if (retrieval) await fetchRetrieval();
       setNotice("已加入 verified gold evidence。");
     });
 
@@ -358,7 +447,8 @@ export default function Home() {
       if (!record) return;
       await api(`/api/gold/${record.gold_id}`, { method: "DELETE" });
       await refresh();
-      if (retrieval) await fetchRetrieval();
+      if (comparison) await fetchComparison();
+      else if (retrieval) await fetchRetrieval();
       setNotice("已移除该 gold evidence。");
     });
 
@@ -374,6 +464,21 @@ export default function Home() {
       );
       setBlockSearch(result.blocks);
       setNotice(`全文浏览找到 ${result.blocks.length} 个证据块。`);
+    });
+
+  const browseAllBlocks = () =>
+    runAction("block-browse-all", async () => {
+      if (!selectedDocumentId) {
+        throw new Error("请选择论文。");
+      }
+      const result = await api<{ blocks: BlockRecord[] }>(
+        `/api/documents/${selectedDocumentId}/blocks?limit=300`,
+      );
+      setBlockQuery("");
+      setBlockSearch(result.blocks);
+      setNotice(
+        `已载入 ${result.blocks.length} 个证据块，可逐条检查并补充 Gold。`,
+      );
     });
 
   const runEvaluation = () =>
@@ -700,6 +805,7 @@ export default function Home() {
                     onChange={(event) => {
                       setSelectedDocumentId(event.target.value);
                       setRetrieval(null);
+                      setComparison(null);
                       setBlockSearch([]);
                     }}
                     value={selectedDocumentId}
@@ -721,6 +827,7 @@ export default function Home() {
                     onChange={(event) => {
                       setSelectedField(event.target.value);
                       setRetrieval(null);
+                      setComparison(null);
                     }}
                     value={selectedField}
                   >
@@ -756,7 +863,190 @@ export default function Home() {
                 >
                   {busy === "retrieve" ? "正在召回…" : "运行证据召回"}
                 </button>
+                <button
+                  className="comparison-button"
+                  data-testid="run-retrieval-comparison"
+                  disabled={
+                    busy === "compare" ||
+                    !selectedDocumentId ||
+                    !selectedField
+                  }
+                  onClick={runComparison}
+                  type="button"
+                >
+                  {busy === "compare" ? "正在比较…" : "比较三种方法"}
+                </button>
               </article>
+
+              {comparison ? (
+                <section
+                  className="comparison-section"
+                  data-testid="retrieval-comparison"
+                >
+                  <div className="section-heading comparison-heading">
+                    <div>
+                      <span className="eyebrow">SIDE-BY-SIDE AUDIT</span>
+                      <h3>同一查询的检索方法对照</h3>
+                    </div>
+                    <code>{comparison.comparison_id}</code>
+                  </div>
+                  <div className="query-box">
+                    <span>冻结查询 · verified Gold</span>
+                    <p>{comparison.query}</p>
+                  </div>
+                  <div className="comparison-grid">
+                    {comparison.items.map((item) => {
+                      const response = item.retrieval;
+                      return (
+                        <article
+                          className={`comparison-column strategy-${item.strategy}`}
+                          key={item.strategy}
+                        >
+                          <header>
+                            <div>
+                              <span>{item.strategy}</span>
+                              <h4>{item.label}</h4>
+                            </div>
+                            <strong
+                              className={
+                                item.status === "available"
+                                  ? "available"
+                                  : "unavailable"
+                              }
+                            >
+                              {item.status === "available" ? "可运行" : "不可用"}
+                            </strong>
+                          </header>
+                          {response && item.metrics ? (
+                            <>
+                              <dl className="comparison-metrics">
+                                <div>
+                                  <dt>Gold 首位</dt>
+                                  <dd>
+                                    {item.metrics.gold_count
+                                      ? item.metrics.first_gold_rank
+                                        ? `#${item.metrics.first_gold_rank}`
+                                        : "未命中"
+                                      : "未标注"}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt>Hit@{comparison.k}</dt>
+                                  <dd>
+                                    {item.metrics.hit_at_k === null
+                                      ? "—"
+                                      : percent(item.metrics.hit_at_k)}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt>Recall@{comparison.k}</dt>
+                                  <dd>
+                                    {item.metrics.recall_at_k === null
+                                      ? "—"
+                                      : percent(item.metrics.recall_at_k)}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt>耗时</dt>
+                                  <dd>{response.elapsed_ms.toFixed(1)} ms</dd>
+                                </div>
+                              </dl>
+                              <code className="comparison-identity">
+                                {response.backend.backend}/{response.backend.model}@
+                                {response.backend.model_version}
+                              </code>
+                              <div className="comparison-hits">
+                                {response.hits.map((hit) => {
+                                  const gold = state.gold.some(
+                                    (record) =>
+                                      record.block_id === hit.block.block_id &&
+                                      record.field_name === selectedField &&
+                                      record.document_id === selectedDocumentId,
+                                  );
+                                  const baseline = comparison.items
+                                    .find(
+                                      (candidate) =>
+                                        candidate.strategy === "bm25-only",
+                                    )
+                                    ?.retrieval?.hits.find(
+                                      (candidate) =>
+                                        candidate.block.block_id ===
+                                        hit.block.block_id,
+                                    );
+                                  const rankDelta = baseline
+                                    ? baseline.rank - hit.rank
+                                    : null;
+                                  return (
+                                    <article
+                                      className={gold ? "gold" : ""}
+                                      key={hit.block.block_id}
+                                    >
+                                      <div className="comparison-hit-meta">
+                                        <strong>#{hit.rank}</strong>
+                                        <span>p.{hit.block.page}</span>
+                                        <span>{hit.block.section}</span>
+                                        {item.strategy !== "bm25-only" ? (
+                                          <em>
+                                            {rankDelta === null
+                                              ? "BM25 Top K 外"
+                                              : rankDelta > 0
+                                                ? `较 BM25 ↑${rankDelta}`
+                                                : rankDelta < 0
+                                                  ? `较 BM25 ↓${Math.abs(rankDelta)}`
+                                                  : "与 BM25 同位"}
+                                          </em>
+                                        ) : null}
+                                      </div>
+                                      <p>{hit.block.text}</p>
+                                      <div className="comparison-hit-score">
+                                        <span>总分 {hit.score.toFixed(3)}</span>
+                                        <span>
+                                          BM25 {hit.score_components.bm25.toFixed(2)}
+                                        </span>
+                                        <span>
+                                          Semantic{" "}
+                                          {hit.score_components.semantic.toFixed(2)}
+                                        </span>
+                                      </div>
+                                      <button
+                                        className={
+                                          gold
+                                            ? "gold-button active"
+                                            : "gold-button"
+                                        }
+                                        disabled={
+                                          busy === `gold-${hit.block.block_id}`
+                                        }
+                                        onClick={() =>
+                                          gold
+                                            ? removeGold(hit.block.block_id)
+                                            : addGold(hit.block)
+                                        }
+                                        type="button"
+                                      >
+                                        {gold ? "✓ Gold" : "+ Gold"}
+                                      </button>
+                                    </article>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="comparison-unavailable">
+                              <strong>E5 可选运行时尚未就绪</strong>
+                              <p>{item.error}</p>
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                  <p className="comparison-note">
+                    排名变化以 BM25-only 为基准；三列使用同一字段查询、同一论文和同一组
+                    verified Gold。冷启动耗时可能包含 E5 模型加载，重复运行可观察热缓存。
+                  </p>
+                </section>
+              ) : null}
 
               {retrieval ? (
                 <div className="retrieval-layout">
@@ -766,7 +1056,13 @@ export default function Home() {
                         <span className="eyebrow">TOP {topK}</span>
                         <h3>机器召回结果</h3>
                       </div>
-                      <code>{retrieval.retrieval_version}</code>
+                      <code>
+                        {retrieval.retrieval_version} · {retrieval.backend.backend}/
+                        {retrieval.backend.model}@{retrieval.backend.model_version} ·{" "}
+                        {retrieval.elapsed_ms.toFixed(2)} ms · cache H
+                        {retrieval.cache.hits}/M{retrieval.cache.misses}/W
+                        {retrieval.cache.writes}
+                      </code>
                     </div>
                     <div className="query-box">
                       <span>查询扩展</span>
@@ -859,6 +1155,13 @@ export default function Home() {
                         type="button"
                       >
                         搜索全文
+                      </button>
+                      <button
+                        disabled={busy === "block-browse-all"}
+                        onClick={browseAllBlocks}
+                        type="button"
+                      >
+                        浏览全部
                       </button>
                     </div>
                     <div className="gold-summary">
@@ -1040,6 +1343,20 @@ export default function Home() {
                           <dt>覆盖字段</dt>
                           <dd>{evaluation.coverage.fields}</dd>
                         </div>
+                        {typeof evaluation.coverage.vector_cache_hits ===
+                        "number" ? (
+                          <div>
+                            <dt>向量缓存命中</dt>
+                            <dd>{evaluation.coverage.vector_cache_hits}</dd>
+                          </div>
+                        ) : null}
+                        {typeof evaluation.coverage.vector_cache_misses ===
+                        "number" ? (
+                          <div>
+                            <dt>向量缓存未命中</dt>
+                            <dd>{evaluation.coverage.vector_cache_misses}</dd>
+                          </div>
+                        ) : null}
                       </dl>
                     </article>
                   </div>
@@ -1050,7 +1367,15 @@ export default function Home() {
                         <span className="eyebrow">FIELD BREAKDOWN</span>
                         <h3>按字段诊断</h3>
                       </div>
-                      <code>{evaluation.retrieval_version}</code>
+                      <code>
+                        {evaluation.retrieval_version}
+                        {evaluation.backend
+                          ? ` · ${evaluation.backend.backend}/${evaluation.backend.model}@${evaluation.backend.model_version}`
+                          : ""}
+                        {evaluation.timing
+                          ? ` · ${evaluation.timing.retrieval_elapsed_ms.toFixed(2)} ms`
+                          : ""}
+                      </code>
                     </div>
                     <table>
                       <thead>

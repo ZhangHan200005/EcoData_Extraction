@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime, timezone
 from statistics import mean
+from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
@@ -36,6 +37,7 @@ class RetrievalEvaluator:
         spec: ProjectSpec,
         request: EvaluationRequest,
     ) -> EvaluationResponse:
+        evaluation_started_at = perf_counter()
         gold_records = self.repository.list_gold(
             status="" if request.gold_status == "all" else request.gold_status
         )
@@ -47,14 +49,25 @@ class RetrievalEvaluator:
 
         k_values = sorted({max(1, min(30, value)) for value in request.k_values})
         per_query: list[dict[str, Any]] = []
+        corpus_blocks_scored = 0
+        vector_cache_hits = vector_cache_misses = vector_cache_writes = 0
         for (document_id, field_name), gold_ids in grouped_gold.items():
+            document = self.repository.document(document_id)
             blocks = self.repository.blocks(document_id)
-            if not blocks:
+            if not document or not blocks:
                 continue
-            _, ranked = self.retriever.rank(
-                blocks, field_name, spec, gold_ids
+            corpus_blocks_scored += len(blocks)
+            ranking = self.retriever.rank(
+                blocks,
+                field_name,
+                spec,
+                gold_ids,
+                document_sha256=document.sha256,
             )
-            ranked_ids = [hit.block.block_id for hit in ranked]
+            vector_cache_hits += ranking.cache.hits
+            vector_cache_misses += ranking.cache.misses
+            vector_cache_writes += ranking.cache.writes
+            ranked_ids = [hit.block.block_id for hit in ranking.hits]
             first_rank = next(
                 (
                     index
@@ -77,8 +90,12 @@ class RetrievalEvaluator:
                     "document_id": document_id,
                     "field_name": field_name,
                     "gold_count": len(gold_ids),
+                    "gold_block_ids": sorted(gold_ids),
+                    "top_block_ids": ranked_ids[: max(k_values, default=0)],
                     "first_relevant_rank": first_rank,
                     "reciprocal_rank": 1 / first_rank if first_rank else 0.0,
+                    "elapsed_ms": ranking.elapsed_ms,
+                    "cache": ranking.cache.model_dump(),
                     "metrics": metrics,
                 }
             )
@@ -127,10 +144,18 @@ class RetrievalEvaluator:
             per_field.append(field_metrics)
 
         generated_at = utc_now()
+        retrieval_elapsed_ms = round(
+            sum(query["elapsed_ms"] for query in per_query), 6
+        )
+        evaluation_elapsed_ms = round(
+            (perf_counter() - evaluation_started_at) * 1000, 6
+        )
         response = EvaluationResponse(
             evaluation_id=f"eval-{uuid4().hex[:12]}",
             generated_at=generated_at,
             retrieval_version=settings.retrieval_version,
+            backend=self.retriever.backend_metadata,
+            parameters=self.retriever.parameters,
             gold_status=request.gold_status,
             coverage={
                 "annotated_queries": len(grouped_gold),
@@ -140,6 +165,19 @@ class RetrievalEvaluator:
                     {document_id for document_id, _ in grouped_gold}
                 ),
                 "fields": len({field for _, field in grouped_gold}),
+                "corpus_blocks_scored": corpus_blocks_scored,
+                "vector_cache_hits": vector_cache_hits,
+                "vector_cache_misses": vector_cache_misses,
+                "vector_cache_writes": vector_cache_writes,
+            },
+            timing={
+                "retrieval_elapsed_ms": retrieval_elapsed_ms,
+                "evaluation_elapsed_ms": evaluation_elapsed_ms,
+                "mean_query_ms": round(
+                    retrieval_elapsed_ms / len(per_query), 6
+                )
+                if per_query
+                else 0.0,
             },
             metrics_at_k=metrics_at_k,
             mean_reciprocal_rank=round(

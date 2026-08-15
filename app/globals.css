@@ -711,8 +711,22 @@ button.primary:hover:not(:disabled) {
   align-items: end;
   margin-bottom: 24px;
   padding: 20px;
-  grid-template-columns: minmax(240px, 2fr) minmax(180px, 1fr) 100px auto;
+  grid-template-columns:
+    minmax(220px, 1.7fr) minmax(170px, 1fr) 90px auto auto;
   gap: 14px;
+}
+
+.comparison-button {
+  border: 1px solid var(--green);
+  border-radius: 10px;
+  background: white;
+  color: var(--green);
+  padding: 11px 15px;
+  font-weight: 750;
+}
+
+.comparison-button:hover:not(:disabled) {
+  background: var(--green-pale);
 }
 
 .retrieval-controls label {
@@ -781,6 +795,198 @@ input:focus {
   color: #355b4a;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.comparison-section {
+  margin-bottom: 28px;
+  border: 1px solid #bfcfc5;
+  border-radius: 18px;
+  background: rgba(235, 242, 235, 0.68);
+  padding: 22px;
+}
+
+.comparison-heading code {
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comparison-grid {
+  display: grid;
+  align-items: start;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.comparison-column {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  padding: 14px;
+}
+
+.comparison-column > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.comparison-column > header span {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.comparison-column > header h4 {
+  margin: 3px 0 0;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 18px;
+}
+
+.comparison-column > header > strong {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 9px;
+}
+
+.comparison-column > header > strong.available {
+  background: var(--green-pale);
+  color: var(--green);
+}
+
+.comparison-column > header > strong.unavailable {
+  background: var(--amber-pale);
+  color: var(--amber);
+}
+
+.comparison-metrics {
+  display: grid;
+  margin: 0 0 11px;
+  border: 1px solid #edf0ed;
+  border-radius: 10px;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.comparison-metrics div {
+  padding: 9px;
+}
+
+.comparison-metrics dt {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.comparison-metrics dd {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.comparison-identity {
+  display: block;
+  overflow: hidden;
+  margin-bottom: 11px;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comparison-hits {
+  display: grid;
+  gap: 8px;
+}
+
+.comparison-hits > article {
+  position: relative;
+  border: 1px solid #e2e7e3;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.comparison-hits > article.gold {
+  border-color: #87ae95;
+  background: #f7fbf8;
+}
+
+.comparison-hit-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.comparison-hit-meta strong {
+  color: var(--green);
+  font-family: Georgia, serif;
+}
+
+.comparison-hit-meta span,
+.comparison-hit-meta em {
+  color: var(--muted);
+  font-size: 8px;
+  font-style: normal;
+}
+
+.comparison-hit-meta em {
+  margin-left: auto;
+  color: var(--blue);
+}
+
+.comparison-hits article > p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 8px 0;
+  color: #46514c;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 11px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.comparison-hit-score {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 8px;
+}
+
+.comparison-unavailable {
+  min-height: 220px;
+  border: 1px dashed #d7b68e;
+  border-radius: 10px;
+  background: var(--amber-pale);
+  padding: 14px;
+}
+
+.comparison-unavailable strong {
+  color: var(--amber);
+  font-size: 12px;
+}
+
+.comparison-unavailable p {
+  overflow-wrap: anywhere;
+  color: #755333;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.comparison-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.65;
 }
 
 .evidence-card {
@@ -925,7 +1131,7 @@ input:focus {
   border: 1px solid #cfd7d1;
   border-radius: 9px;
   background: white;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
 }
 
 .block-search input {
@@ -934,7 +1140,13 @@ input:focus {
 }
 
 .block-search button {
+  border: 0;
+  border-left: 1px solid #d8ded9;
+  background: #f7f9f7;
+  color: var(--green);
   padding: 0 12px;
+  font-size: 10px;
+  font-weight: 750;
 }
 
 .gold-summary {
@@ -1158,6 +1370,10 @@ td:first-child {
     grid-template-columns: 1fr 1fr;
   }
 
+  .comparison-grid {
+    grid-template-columns: 1fr;
+  }
+
   .evaluation-hero {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1256,6 +1472,14 @@ td:first-child {
 
   .score-bars {
     grid-template-columns: 1fr;
+  }
+
+  .block-search {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .block-search input {
+    grid-column: 1 / -1;
   }
 
   .evaluation-callout {

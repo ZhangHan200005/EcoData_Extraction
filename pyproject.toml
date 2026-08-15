@@ -6,13 +6,20 @@ build-backend = "setuptools.build_meta"
 name = "ecoevidence-mvp"
 version = "1.1.0"
 description = "Project-guided PDF parsing and measurable evidence retrieval"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
   "fastapi==0.116.1",
   "uvicorn[standard]==0.35.0",
   "pydantic==2.11.7",
   "pdfplumber==0.11.8",
   "pypdf==6.11.0",
+]
+
+[project.optional-dependencies]
+neural = [
+  "sentence-transformers==5.5.1",
+  "transformers==5.15.0",
+  "torch==2.13.0",
 ]
 
 [tool.setuptools]
