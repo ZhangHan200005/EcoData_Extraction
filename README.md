@@ -162,6 +162,8 @@ tests/            前端生产构建与服务端渲染测试
 
 ## 继续阅读
 
+- [开发 Roadmap 与里程碑验收标准](docs/ROADMAP.md)
+- [面向 Codex/代码代理的仓库工作规则](AGENTS.md)
 - [中文学习与调试指南](docs/LEARNING_GUIDE.md)
 - [系统架构与数据流](docs/ARCHITECTURE.md)
 - [Demo 预期证据](demo/README.md)
