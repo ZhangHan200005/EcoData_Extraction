@@ -28,22 +28,36 @@ FIXTURE_PATH = (
 class DeterministicFixtureEmbeddingBackend:
     """Test-only vector backend; it is explicitly not a neural model."""
 
+    def __init__(
+        self,
+        model_version: str = "fixture-v1",
+        parameter_revision: str = "params-v1",
+    ) -> None:
+        self.model_version = model_version
+        self.parameter_revision = parameter_revision
+        self.encode_calls = 0
+
     @property
     def metadata(self) -> RetrievalBackendMetadata:
         return RetrievalBackendMetadata(
             backend="fixture-deterministic",
             backend_version="v1",
             model="deterministic-concept-vectors",
-            model_version="fixture-v1",
+            model_version=self.model_version,
             dimensions=3,
             is_neural=False,
         )
 
     @property
     def parameters(self) -> dict[str, Any]:
-        return {"fixture_only": True, "normalization": "l2"}
+        return {
+            "fixture_only": True,
+            "normalization": "l2",
+            "parameter_revision": self.parameter_revision,
+        }
 
     def encode(self, text: str) -> list[float]:
+        self.encode_calls += 1
         lowered = text.lower()
         values = [
             float(any(term in lowered for term in ("respiration", "co2", "呼吸"))),
@@ -88,8 +102,11 @@ def build_report() -> list[dict[str, Any]]:
         results = [
             RetrievalEvaluator(repository, retriever).evaluate(spec, request)
             for retriever in (
-                EvidenceRetriever(),
-                EvidenceRetriever(DeterministicFixtureEmbeddingBackend()),
+                EvidenceRetriever(vector_cache=repository),
+                EvidenceRetriever(
+                    DeterministicFixtureEmbeddingBackend(),
+                    vector_cache=repository,
+                ),
             )
         ]
         return [result.model_dump() for result in results]

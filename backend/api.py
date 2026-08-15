@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Repository, initialize_database
 from .evaluation import RetrievalEvaluator
+from .retrieval import EMBEDDING_CACHE_KEY_VERSION
 from .schemas import (
     EvaluationRequest,
     EvaluationResponse,
@@ -52,6 +53,10 @@ def health() -> dict:
         "parser_version": settings.parser_version,
         "retrieval_version": settings.retrieval_version,
         "retrieval_backend": service.retriever.backend_metadata.model_dump(),
+        "vector_cache": {
+            "enabled": service.retriever.cache_enabled,
+            "key_version": EMBEDDING_CACHE_KEY_VERSION,
+        },
     }
 
 

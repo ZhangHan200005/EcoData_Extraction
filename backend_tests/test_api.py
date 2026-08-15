@@ -24,6 +24,11 @@ class ApiConfigurationTests(unittest.TestCase):
             payload["retrieval_backend"]["model"],
         )
         self.assertFalse(payload["retrieval_backend"]["is_neural"])
+        self.assertTrue(payload["vector_cache"]["enabled"])
+        self.assertEqual(
+            "embedding-cache-key-v1",
+            payload["vector_cache"]["key_version"],
+        )
 
 
 if __name__ == "__main__":

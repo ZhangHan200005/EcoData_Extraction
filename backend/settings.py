@@ -29,7 +29,7 @@ class Settings:
         )
     ).resolve()
     parser_version: str = "pdfplumber-layout-v1"
-    retrieval_version: str = "hybrid-configurable-vector-v2"
+    retrieval_version: str = "hybrid-persistent-vector-cache-v3"
 
 
 settings = Settings()

@@ -2,7 +2,7 @@
 
 ## 1. 版本边界
 
-MVP 1.1 只解决到“可量化的证据召回评估”。M2 的首个切片进一步把向量编码器改造成带版本元数据的可替换 backend，并记录检索参数与耗时；当前生产默认值仍是 hashing baseline，尚未接入真实神经模型或持久化向量索引。系统不生成最终科研数据，也不调用大模型编造摘要或数值。
+MVP 1.1 只解决到“可量化的证据召回评估”。M2 已把向量编码器改造成带版本元数据的可替换 backend，记录检索参数与耗时，并用 SQLite 安全缓存证据块向量；当前生产默认值仍是 hashing baseline，尚未接入真实神经模型。系统不生成最终科研数据，也不调用大模型编造摘要或数值。
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,8 @@ flowchart LR
 - `blocks` 是唯一的全文事实来源，每条保存文本、页码、章节、类型和 PDF 坐标。
 - 完整全文需要时按 `ordinal` 拼接 `blocks.text` 即可，不再复制一份大字符串。
 - `gold_evidence` 只保存对证据块的引用。
-- `retrieval_runs` 和 `evaluations` 保存版本化实验结果。单次召回还独立记录 retrieval backend、backend/model 版本、参数、查询数、语料块数和耗时；旧数据库通过只增列迁移保留原记录。
+- `retrieval_runs` 和 `evaluations` 保存版本化实验结果。单次召回还独立记录 retrieval backend、backend/model 版本、参数、查询数、语料块数、耗时和缓存统计；旧数据库通过只增列迁移保留原记录。
+- `embedding_vectors` 保存证据块向量和完整缓存身份。查询向量不持久化，每次请求实时生成。
 
 因此“全文可检索”和“避免重复存储”可以同时成立。数据库结构见
 [database.py](../backend/database.py)。
@@ -42,7 +43,7 @@ flowchart LR
 | [requirement_interpreter.py](../backend/requirement_interpreter.py) | 把自由描述拆成可核对字段 | 判断论文是否有数据 |
 | [pdf_parser.py](../backend/pdf_parser.py) | 全文、布局、章节、caption、稳定 ID | OCR 扫描页 |
 | [screening.py](../backend/screening.py) | `usable/relative/nodata/failed` 基线规则 | 最终人工结论 |
-| [retrieval.py](../backend/retrieval.py) | Embedding backend 契约、查询扩展、BM25、向量相似度和排序 | 模型下载、持久化向量或最终数值抽取 |
+| [retrieval.py](../backend/retrieval.py) | Embedding/cache 契约、缓存身份、查询扩展、BM25、向量相似度和排序 | SQL、模型下载或最终数值抽取 |
 | [evaluation.py](../backend/evaluation.py) | 对 verified Gold 计算指标 | 自动创造 Gold |
 | [database.py](../backend/database.py) | SQLite 持久化和查询 | 页面展示 |
 | [services.py](../backend/services.py) | 串联用例、哈希复用、重新筛选 | HTTP 细节 |
@@ -89,12 +90,17 @@ block_id, document_id, ordinal, page, section, kind, text, bbox
 
 API 返回当前 backend/model/version、完整参数和单次耗时，评估结果还返回总检索耗时、评估耗时、平均查询耗时以及逐查询的 Gold/top block ID。测试中的 `fixture-deterministic` 只验证接口替换和报告形状，不是神经模型，也不能作为神经检索收益证据。
 
-真实模型接入后，持久化向量必须使用以下联合身份，任何一项变化都不得静默复用旧向量：
+持久化向量使用以下联合身份，任何一项变化都会生成新 cache key，不会静默复用旧向量：
 
 ```text
 document_sha256 + block_id + normalized_text_hash
-+ backend + model + model_version
++ backend + backend_version + model + model_version
++ dimensions + embedding_parameters_hash + cache_key_version
 ```
+
+检索层通过批量 cache 协议读取和写入整组 block；SQLite 实现位于 `database.py`，因此排序算法不依赖 SQL。冷缓存首次编码并写入，热缓存只重新编码 query。旧的不可达向量暂不自动删除，避免后台清理误删用户数据；后续若增加垃圾回收，必须提供明确范围和可恢复策略。
+
+当前仍在单文档 block 集合上执行精确余弦扫描；`embedding_vectors` 是生成缓存而不是 ANN 向量数据库。是否引入 FAISS/HNSW 等索引必须由代表性语料的规模和延迟证据驱动。
 
 这正是 RAG 中的 Retrieval 层。当前没有 Generation 层，因为此阶段首先要证明正确证据能被召回。
 

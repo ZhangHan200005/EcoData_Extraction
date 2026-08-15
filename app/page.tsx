@@ -83,6 +83,13 @@ type RetrievalBackend = {
   is_neural: boolean;
 };
 
+type RetrievalCacheStats = {
+  enabled: boolean;
+  hits: number;
+  misses: number;
+  writes: number;
+};
+
 type RetrievalResponse = {
   run_id: string;
   field_name: string;
@@ -93,6 +100,7 @@ type RetrievalResponse = {
   query_count: number;
   total_blocks: number;
   elapsed_ms: number;
+  cache: RetrievalCacheStats;
   hits: RetrievalHit[];
 };
 
@@ -785,7 +793,9 @@ export default function Home() {
                       <code>
                         {retrieval.retrieval_version} · {retrieval.backend.backend}/
                         {retrieval.backend.model}@{retrieval.backend.model_version} ·{" "}
-                        {retrieval.elapsed_ms.toFixed(2)} ms
+                        {retrieval.elapsed_ms.toFixed(2)} ms · cache H
+                        {retrieval.cache.hits}/M{retrieval.cache.misses}/W
+                        {retrieval.cache.writes}
                       </code>
                     </div>
                     <div className="query-box">
@@ -1060,6 +1070,20 @@ export default function Home() {
                           <dt>覆盖字段</dt>
                           <dd>{evaluation.coverage.fields}</dd>
                         </div>
+                        {typeof evaluation.coverage.vector_cache_hits ===
+                        "number" ? (
+                          <div>
+                            <dt>向量缓存命中</dt>
+                            <dd>{evaluation.coverage.vector_cache_hits}</dd>
+                          </div>
+                        ) : null}
+                        {typeof evaluation.coverage.vector_cache_misses ===
+                        "number" ? (
+                          <div>
+                            <dt>向量缓存未命中</dt>
+                            <dd>{evaluation.coverage.vector_cache_misses}</dd>
+                          </div>
+                        ) : null}
                       </dl>
                     </article>
                   </div>

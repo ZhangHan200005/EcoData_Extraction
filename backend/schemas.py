@@ -103,6 +103,29 @@ class RetrievalBackendMetadata(BaseModel):
     is_neural: bool
 
 
+class EmbeddingCacheKey(BaseModel):
+    """Content- and version-addressed identity for one cached block vector."""
+
+    cache_key: str
+    cache_key_version: str
+    document_sha256: str
+    block_id: str
+    normalized_text_sha256: str
+    backend: str
+    backend_version: str
+    model: str
+    model_version: str
+    dimensions: int = Field(ge=1)
+    parameters_sha256: str
+
+
+class RetrievalCacheStats(BaseModel):
+    enabled: bool
+    hits: int = Field(ge=0)
+    misses: int = Field(ge=0)
+    writes: int = Field(ge=0)
+
+
 class RetrievalResponse(BaseModel):
     run_id: str
     document_id: str
@@ -114,6 +137,7 @@ class RetrievalResponse(BaseModel):
     query_count: int = 1
     total_blocks: int
     elapsed_ms: float = Field(ge=0)
+    cache: RetrievalCacheStats
     hits: list[RetrievalHit]
 
 

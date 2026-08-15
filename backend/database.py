@@ -11,6 +11,7 @@ from typing import Any, Iterator
 from .schemas import (
     BlockRecord,
     DocumentRecord,
+    EmbeddingCacheKey,
     GoldEvidenceRecord,
     ProjectSpec,
     RetrievalResponse,
@@ -95,8 +96,31 @@ CREATE TABLE IF NOT EXISTS retrieval_runs (
     query_count INTEGER NOT NULL DEFAULT 1,
     corpus_size INTEGER NOT NULL DEFAULT 0,
     elapsed_ms REAL NOT NULL DEFAULT 0,
+    cache_enabled INTEGER NOT NULL DEFAULT 0,
+    vector_cache_hits INTEGER NOT NULL DEFAULT 0,
+    vector_cache_misses INTEGER NOT NULL DEFAULT 0,
+    vector_cache_writes INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS embedding_vectors (
+    cache_key TEXT PRIMARY KEY,
+    cache_key_version TEXT NOT NULL,
+    document_sha256 TEXT NOT NULL,
+    block_id TEXT NOT NULL,
+    normalized_text_sha256 TEXT NOT NULL,
+    retrieval_backend TEXT NOT NULL,
+    backend_version TEXT NOT NULL,
+    embedding_model TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    dimensions INTEGER NOT NULL,
+    parameters_sha256 TEXT NOT NULL,
+    vector_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS embedding_vectors_document_block_idx
+ON embedding_vectors(document_sha256, block_id);
 
 CREATE TABLE IF NOT EXISTS evaluations (
     evaluation_id TEXT PRIMARY KEY,
@@ -115,6 +139,10 @@ RETRIEVAL_RUN_MIGRATIONS = {
     "query_count": "INTEGER NOT NULL DEFAULT 1",
     "corpus_size": "INTEGER NOT NULL DEFAULT 0",
     "elapsed_ms": "REAL NOT NULL DEFAULT 0",
+    "cache_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "vector_cache_hits": "INTEGER NOT NULL DEFAULT 0",
+    "vector_cache_misses": "INTEGER NOT NULL DEFAULT 0",
+    "vector_cache_writes": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -308,6 +336,107 @@ class Repository:
             ).fetchone()
         return self._block(row) if row else None
 
+    def get_embedding_vectors(
+        self, keys: list[EmbeddingCacheKey]
+    ) -> dict[str, list[float]]:
+        if not keys:
+            return {}
+        vectors: dict[str, list[float]] = {}
+        keys_by_cache_key = {key.cache_key: key for key in keys}
+        cache_keys = list(keys_by_cache_key)
+        with connect(self.path) as connection:
+            for start in range(0, len(cache_keys), 400):
+                batch = cache_keys[start : start + 400]
+                placeholders = ", ".join("?" for _ in batch)
+                rows = connection.execute(
+                    f"""
+                    SELECT * FROM embedding_vectors
+                    WHERE cache_key IN ({placeholders})
+                    """,
+                    batch,
+                ).fetchall()
+                for row in rows:
+                    key = keys_by_cache_key[row["cache_key"]]
+                    stored_identity = (
+                        row["cache_key_version"],
+                        row["document_sha256"],
+                        row["block_id"],
+                        row["normalized_text_sha256"],
+                        row["retrieval_backend"],
+                        row["backend_version"],
+                        row["embedding_model"],
+                        row["model_version"],
+                        row["dimensions"],
+                        row["parameters_sha256"],
+                    )
+                    requested_identity = (
+                        key.cache_key_version,
+                        key.document_sha256,
+                        key.block_id,
+                        key.normalized_text_sha256,
+                        key.backend,
+                        key.backend_version,
+                        key.model,
+                        key.model_version,
+                        key.dimensions,
+                        key.parameters_sha256,
+                    )
+                    if stored_identity != requested_identity:
+                        raise ValueError("Cached embedding identity mismatch")
+                    vector = json.loads(row["vector_json"])
+                    if not isinstance(vector, list) or len(vector) != key.dimensions:
+                        raise ValueError(
+                            "Cached embedding vector has invalid dimensions"
+                        )
+                    vectors[key.cache_key] = [float(value) for value in vector]
+        return vectors
+
+    def save_embedding_vectors(
+        self,
+        records: list[tuple[EmbeddingCacheKey, list[float]]],
+    ) -> None:
+        if not records:
+            return
+        for key, vector in records:
+            if len(vector) != key.dimensions:
+                raise ValueError("Embedding vector has invalid dimensions")
+        with connect(self.path) as connection:
+            connection.executemany(
+                """
+                INSERT INTO embedding_vectors (
+                    cache_key, cache_key_version, document_sha256, block_id,
+                    normalized_text_sha256, retrieval_backend,
+                    backend_version, embedding_model, model_version,
+                    dimensions, parameters_sha256, vector_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(cache_key) DO NOTHING
+                """,
+                [
+                    (
+                        key.cache_key,
+                        key.cache_key_version,
+                        key.document_sha256,
+                        key.block_id,
+                        key.normalized_text_sha256,
+                        key.backend,
+                        key.backend_version,
+                        key.model,
+                        key.model_version,
+                        key.dimensions,
+                        key.parameters_sha256,
+                        _json(vector),
+                    )
+                    for key, vector in records
+                ],
+            )
+
+    def embedding_vector_count(self) -> int:
+        with connect(self.path) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM embedding_vectors"
+            ).fetchone()
+        return int(row["count"])
+
     def save_gold(self, record: GoldEvidenceRecord) -> GoldEvidenceRecord:
         with connect(self.path) as connection:
             connection.execute(
@@ -383,8 +512,12 @@ class Repository:
                     k, result_json, retrieval_version, retrieval_backend,
                     backend_version, embedding_model, model_version,
                     parameters_json, query_count, corpus_size, elapsed_ms,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cache_enabled, vector_cache_hits, vector_cache_misses,
+                    vector_cache_writes, created_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 """,
                 (
                     response.run_id,
@@ -402,6 +535,10 @@ class Repository:
                     response.query_count,
                     response.total_blocks,
                     response.elapsed_ms,
+                    int(response.cache.enabled),
+                    response.cache.hits,
+                    response.cache.misses,
+                    response.cache.writes,
                     created_at,
                 ),
             )

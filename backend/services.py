@@ -35,7 +35,9 @@ class EcoEvidenceService:
         self.interpreter = RequirementInterpreter()
         self.parser = FullDocumentParser()
         self.screener = DocumentScreener()
-        self.retriever = retriever or EvidenceRetriever()
+        self.retriever = retriever or EvidenceRetriever(
+            vector_cache=self.repository
+        )
 
     def interpret_and_save(self, brief: str) -> ProjectSpec:
         spec = self.interpreter.interpret(brief)
@@ -183,6 +185,7 @@ class EcoEvidenceService:
             field_name,
             spec,
             gold_ids,
+            document_sha256=document.sha256,
         )
         response = RetrievalResponse(
             run_id=f"retrieval-{uuid4().hex[:12]}",
@@ -195,6 +198,7 @@ class EcoEvidenceService:
             query_count=1,
             total_blocks=len(blocks),
             elapsed_ms=ranking.elapsed_ms,
+            cache=ranking.cache,
             hits=ranking.hits[:k],
         )
         self.repository.save_retrieval_run(

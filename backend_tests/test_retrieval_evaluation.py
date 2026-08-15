@@ -116,7 +116,112 @@ class RetrievalEvaluationTests(unittest.TestCase):
         self.assertEqual(1, saved["query_count"])
         self.assertEqual(len(self.blocks), saved["corpus_size"])
         self.assertEqual(response.parameters, saved["parameters"])
+        self.assertEqual(
+            "embedding-cache-key-v1",
+            response.parameters["vector_cache"]["key_version"],
+        )
         self.assertGreaterEqual(saved["elapsed_ms"], 0)
+        self.assertTrue(response.cache.enabled)
+        self.assertEqual(len(self.blocks), response.cache.misses)
+        self.assertEqual(len(self.blocks), response.cache.writes)
+        self.assertEqual(0, response.cache.hits)
+        self.assertEqual(1, saved["cache_enabled"])
+        self.assertEqual(len(self.blocks), saved["vector_cache_misses"])
+
+        warm_response = service.retrieve(
+            "doc-test", "stem_respiration_rate", 3
+        )
+
+        self.assertEqual(len(self.blocks), warm_response.cache.hits)
+        self.assertEqual(0, warm_response.cache.misses)
+        self.assertEqual(0, warm_response.cache.writes)
+        self.assertEqual(
+            len(self.blocks),
+            self.repository.embedding_vector_count(),
+        )
+
+    def test_vector_cache_invalidates_on_identity_or_content_change(self) -> None:
+        first_backend = DeterministicFixtureEmbeddingBackend()
+        first_retriever = EvidenceRetriever(
+            first_backend,
+            vector_cache=self.repository,
+        )
+        document_sha256 = document().sha256
+
+        cold = first_retriever.rank(
+            self.blocks,
+            "stem_respiration_rate",
+            self.spec,
+            document_sha256=document_sha256,
+        )
+        warm = first_retriever.rank(
+            self.blocks,
+            "stem_respiration_rate",
+            self.spec,
+            document_sha256=document_sha256,
+        )
+
+        self.assertEqual(len(self.blocks), cold.cache.misses)
+        self.assertEqual(len(self.blocks), warm.cache.hits)
+        self.assertEqual(2 + len(self.blocks), first_backend.encode_calls)
+
+        document_changed = first_retriever.rank(
+            self.blocks,
+            "stem_respiration_rate",
+            self.spec,
+            document_sha256="sha-different-document",
+        )
+
+        self.assertEqual(0, document_changed.cache.hits)
+        self.assertEqual(len(self.blocks), document_changed.cache.misses)
+
+        changed_blocks = [*self.blocks]
+        changed_blocks[0] = self.blocks[0].model_copy(
+            update={"text": self.blocks[0].text + " Changed normalized text."}
+        )
+        text_changed = first_retriever.rank(
+            changed_blocks,
+            "stem_respiration_rate",
+            self.spec,
+            document_sha256=document_sha256,
+        )
+
+        self.assertEqual(len(self.blocks) - 1, text_changed.cache.hits)
+        self.assertEqual(1, text_changed.cache.misses)
+
+        versioned_backend = DeterministicFixtureEmbeddingBackend(
+            model_version="fixture-v2"
+        )
+        versioned_retriever = EvidenceRetriever(
+            versioned_backend,
+            vector_cache=self.repository,
+        )
+        model_changed = versioned_retriever.rank(
+            self.blocks,
+            "stem_respiration_rate",
+            self.spec,
+            document_sha256=document_sha256,
+        )
+
+        self.assertEqual(0, model_changed.cache.hits)
+        self.assertEqual(len(self.blocks), model_changed.cache.misses)
+        self.assertEqual(1 + len(self.blocks), versioned_backend.encode_calls)
+
+        parameter_backend = DeterministicFixtureEmbeddingBackend(
+            parameter_revision="params-v2"
+        )
+        parameter_changed = EvidenceRetriever(
+            parameter_backend,
+            vector_cache=self.repository,
+        ).rank(
+            self.blocks,
+            "stem_respiration_rate",
+            self.spec,
+            document_sha256=document_sha256,
+        )
+
+        self.assertEqual(0, parameter_changed.cache.hits)
+        self.assertEqual(len(self.blocks), parameter_changed.cache.misses)
 
     def test_legacy_retrieval_runs_are_preserved_during_schema_upgrade(self) -> None:
         legacy_path = Path(self.temporary_directory.name) / "legacy.sqlite3"
@@ -194,8 +299,11 @@ class RetrievalEvaluationTests(unittest.TestCase):
         reports = [
             RetrievalEvaluator(repository, retriever).evaluate(spec, request)
             for retriever in (
-                EvidenceRetriever(),
-                EvidenceRetriever(DeterministicFixtureEmbeddingBackend()),
+                EvidenceRetriever(vector_cache=repository),
+                EvidenceRetriever(
+                    DeterministicFixtureEmbeddingBackend(),
+                    vector_cache=repository,
+                ),
             )
         ]
 
@@ -211,6 +319,8 @@ class RetrievalEvaluationTests(unittest.TestCase):
             self.assertEqual(len(fixture["queries"]), len(report.per_query))
             self.assertIn("1", report.metrics_at_k)
             self.assertGreaterEqual(report.mean_reciprocal_rank, 0)
+            self.assertEqual(8, report.coverage["vector_cache_hits"])
+            self.assertEqual(4, report.coverage["vector_cache_misses"])
             self.assertTrue(
                 all(query["top_block_ids"] for query in report.per_query)
             )

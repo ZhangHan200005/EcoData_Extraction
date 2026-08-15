@@ -50,14 +50,23 @@ class RetrievalEvaluator:
         k_values = sorted({max(1, min(30, value)) for value in request.k_values})
         per_query: list[dict[str, Any]] = []
         corpus_blocks_scored = 0
+        vector_cache_hits = vector_cache_misses = vector_cache_writes = 0
         for (document_id, field_name), gold_ids in grouped_gold.items():
+            document = self.repository.document(document_id)
             blocks = self.repository.blocks(document_id)
-            if not blocks:
+            if not document or not blocks:
                 continue
             corpus_blocks_scored += len(blocks)
             ranking = self.retriever.rank(
-                blocks, field_name, spec, gold_ids
+                blocks,
+                field_name,
+                spec,
+                gold_ids,
+                document_sha256=document.sha256,
             )
+            vector_cache_hits += ranking.cache.hits
+            vector_cache_misses += ranking.cache.misses
+            vector_cache_writes += ranking.cache.writes
             ranked_ids = [hit.block.block_id for hit in ranking.hits]
             first_rank = next(
                 (
@@ -86,6 +95,7 @@ class RetrievalEvaluator:
                     "first_relevant_rank": first_rank,
                     "reciprocal_rank": 1 / first_rank if first_rank else 0.0,
                     "elapsed_ms": ranking.elapsed_ms,
+                    "cache": ranking.cache.model_dump(),
                     "metrics": metrics,
                 }
             )
@@ -156,6 +166,9 @@ class RetrievalEvaluator:
                 ),
                 "fields": len({field for _, field in grouped_gold}),
                 "corpus_blocks_scored": corpus_blocks_scored,
+                "vector_cache_hits": vector_cache_hits,
+                "vector_cache_misses": vector_cache_misses,
+                "vector_cache_writes": vector_cache_writes,
             },
             timing={
                 "retrieval_elapsed_ms": retrieval_elapsed_ms,

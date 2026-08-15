@@ -1,4 +1,4 @@
-# M2 first-slice retrieval evaluation
+# M2 retrieval evaluation history
 
 Recorded: 2026-08-15
 
@@ -28,7 +28,7 @@ creates a temporary SQLite database and removes it when the report finishes.
 - Queries: three (`stem_respiration_rate`, `species`, `site_name`)
 - Gold: one verified block per query, three total
 - K values: 1 and 3
-- Retrieval version: `hybrid-configurable-vector-v2`
+- Current retrieval version: `hybrid-persistent-vector-cache-v3`
 - Hybrid weights: BM25 0.45, vector similarity 0.35, term coverage 0.15,
   section prior 0.05
 - BM25 parameters: `k1=1.5`, `b=0.75`
@@ -41,7 +41,7 @@ Backends:
 | `hashing` v1 | `blake2b-character-ngram@2-4gram-v1` | 384 | No | Production offline baseline |
 | `fixture-deterministic` v1 | `deterministic-concept-vectors@fixture-v1` | 3 | No | Test-only contract validation |
 
-## Recorded sample
+## First-slice recorded sample
 
 The following values came from one local invocation at
 `2026-08-15T14:10:55Z`. Latency is included to verify measurement and report
@@ -56,6 +56,20 @@ Both reports evaluated three queries and scored 12 query-block pairs. The full
 JSON output includes Hit@K, Recall@K, Precision@K, MRR, backend/model metadata,
 parameters, evaluation and retrieval timing, and per-query Gold/top block IDs.
 
+## Persistent-cache slice
+
+The current report additionally includes a content/version-addressed SQLite
+cache. In one local run at `2026-08-15T16:15:28Z`, each backend produced four
+cold misses/writes on the first query and eight warm hits across the next two
+queries. The hashing report recorded 9.481918 ms total retrieval time and the
+test-only deterministic report recorded 6.547917 ms. These timings verify the
+instrumentation only; the fixture is too small for performance conclusions.
+
+The implementation initially opened one SQLite connection per block. A local
+diagnostic run exposed that overhead, so the final design batches all cache keys
+through one read connection and one `executemany` write. The correctness tests
+assert hit/miss behavior rather than unstable wall-clock thresholds.
+
 ## Limitations and next evidence
 
 - The corpus is deliberately tiny and synthetic; perfect fixture scores do not
@@ -64,7 +78,5 @@ parameters, evaluation and retrieval timing, and per-query Gold/top block IDs.
   compared with a real model.
 - M2 still requires a selected real model with documented license, download
   size, privacy behavior, and runtime requirements.
-- M2 still requires persistent vector caching keyed by document hash, block ID,
-  normalized-text hash, backend, model, and model version.
 - A real baseline-versus-neural comparison must reuse a broader frozen Gold set
   before any quality-improvement claim is published.

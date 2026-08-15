@@ -153,9 +153,23 @@ First-slice implementation evidence:
 
 Current limitation: this slice proves the versioned interface and comparison
 path, not a production neural model or a neural quality improvement. Choosing a
-real model, documenting its license/download/privacy/runtime properties, and
-adding a stale-safe persistent vector cache remain required before M2 can be
-marked **Completed**.
+real model and documenting its license/download/privacy/runtime properties
+remain required before M2 can be marked **Completed**.
+
+Second-slice implementation evidence:
+
+- SQLite now persists block vectors in `embedding_vectors` and reads/writes a
+  whole retrieval corpus through one connection rather than one connection per
+  block;
+- cache identity includes document SHA-256, block ID, normalized-text SHA-256,
+  backend/model versions, dimensions, embedding-parameter SHA-256, and an
+  explicit cache-key version;
+- cold, warm, document-change, text-change, model-version-change, and
+  parameter-change paths are covered by offline tests;
+- retrieval runs, evaluation reports, health output, and the UI expose cache
+  enabled/hit/miss/write state;
+- the local learning and implementation history is maintained in
+  [the Chinese M2 guide](M2_IMPLEMENTATION_GUIDE_CN.md).
 
 Out of scope: LLM generation, OCR, and final field extraction.
 
