@@ -52,7 +52,7 @@ Not yet implemented as production-ready functionality:
 | ID | Milestone | Status | Primary evidence of completion |
 | --- | --- | --- | --- |
 | M0 | Reproducible portfolio baseline | Completed | Public Demo, README, tests, CI, PR #1 |
-| M1 | Repository rules and measurable Roadmap | In progress | `AGENTS.md`, this Roadmap, Draft PR |
+| M1 | Repository rules and measurable Roadmap | Completed | `AGENTS.md`, this Roadmap, PR #2 |
 | M2 | Versioned neural Embedding and Vector Retrieval | Planned | Baseline comparison with Hit@K, Recall@K, MRR, latency |
 | M3 | Schema-guided RAG structured extraction | Planned | Validated field output with evidence and offline tests |
 | M4 | Field provenance, quality rules, and export | Planned | Traceable manifest plus JSON/CSV export |
@@ -79,7 +79,7 @@ Embedding model. Public descriptions must preserve that distinction.
 
 ## M1 — Repository rules and measurable Roadmap
 
-Status: **In progress**
+Status: **Completed** — delivered in PR #2
 
 Scope:
 
