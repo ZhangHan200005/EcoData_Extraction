@@ -173,3 +173,13 @@
   实验库仍为 0 条 Gold，等待人工判断，不沿用旧 parser 下的标签。
 - 浏览器控制台没有 warning 或 error。工作台最终停留在“03 · 证据召回
   审计”，便于下一步直接运行 BM25/hashing/E5 对比并标注 Gold。
+
+### M5-F014 — 远端发布状态
+
+- 实现提交为 `10c645e feat: improve PDF parsing and hierarchical chunks`，
+  已推送到 `feature/pdf-parsing`，没有直接修改 `main`。
+- GitHub Draft PR 为
+  <https://github.com/ZhangHan200005/EcoData_Extraction/pull/5>，目标分支是
+  `main`，创建时 GitHub 报告可合并；仍需 CI 通过和人工审查后才应合并。
+- PR 保持 Draft，不删除功能分支。本条仅记录发布状态，不把 M5 标记为
+  Completed；OCR、表格 cell 结构和可选 Docling 对照仍是后续范围。

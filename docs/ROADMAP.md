@@ -60,7 +60,7 @@ Not yet implemented as production-ready functionality:
 | M2 | Versioned neural Embedding and Vector Retrieval | Completed | Versioned BM25/hashing/E5 comparison, PR #4 |
 | M3 | Schema-guided RAG structured extraction | Planned | Validated field output with evidence and offline tests |
 | M4 | Field provenance, quality rules, and export | Planned | Traceable manifest plus JSON/CSV export |
-| M5 | OCR and table-aware parsing | In progress | Reading-order/chunk/visual inventory slice on `feature/pdf-parsing` |
+| M5 | OCR and table-aware parsing | In progress | Reading-order/chunk/visual inventory slice in Draft PR #5 |
 | M6 | Literature discovery and PDF acquisition | Planned | Reproducible candidate manifest and acquisition states |
 | M7 | Human review evaluation and portfolio release | Planned | Correction set, failure analysis, end-to-end metrics |
 
@@ -269,7 +269,7 @@ Acceptance criteria:
 
 ## M5 — OCR and table-aware parsing
 
-Status: **In progress** — branch `feature/pdf-parsing`
+Status: **In progress** — branch `feature/pdf-parsing`, Draft PR #5
 
 Goal: improve evidence coverage across scanned and table-heavy PDFs.
 
