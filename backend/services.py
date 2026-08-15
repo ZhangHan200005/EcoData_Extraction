@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .database import Repository
+from .embedding_backends import build_embedding_backend
 from .pdf_parser import FullDocumentParser, sha256_file
 from .requirement_interpreter import RequirementInterpreter
 from .retrieval import EvidenceRetriever
@@ -36,7 +37,14 @@ class EcoEvidenceService:
         self.parser = FullDocumentParser()
         self.screener = DocumentScreener()
         self.retriever = retriever or EvidenceRetriever(
-            vector_cache=self.repository
+            build_embedding_backend(
+                settings.retrieval_backend,
+                cache_folder=settings.model_cache_directory,
+                batch_size=settings.embedding_batch_size,
+                device=settings.embedding_device,
+                local_files_only=settings.embedding_local_files_only,
+            ),
+            vector_cache=self.repository,
         )
 
     def interpret_and_save(self, brief: str) -> ProjectSpec:

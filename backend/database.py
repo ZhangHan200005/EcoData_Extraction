@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -153,21 +153,23 @@ def _json(value: Any) -> str:
 def initialize_database(path: Path | None = None) -> None:
     database_path = path or settings.database_path
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(database_path) as connection:
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.executescript(SCHEMA)
-        existing_columns = {
-            row[1]
-            for row in connection.execute(
-                "PRAGMA table_info(retrieval_runs)"
-            ).fetchall()
-        }
-        for column, declaration in RETRIEVAL_RUN_MIGRATIONS.items():
-            if column not in existing_columns:
-                connection.execute(
-                    f"ALTER TABLE retrieval_runs ADD COLUMN {column} {declaration}"
-                )
+    with closing(sqlite3.connect(database_path)) as connection:
+        with connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.executescript(SCHEMA)
+            existing_columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(retrieval_runs)"
+                ).fetchall()
+            }
+            for column, declaration in RETRIEVAL_RUN_MIGRATIONS.items():
+                if column not in existing_columns:
+                    connection.execute(
+                        "ALTER TABLE retrieval_runs ADD COLUMN "
+                        f"{column} {declaration}"
+                    )
 
 
 @contextmanager

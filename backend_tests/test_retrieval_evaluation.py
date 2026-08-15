@@ -4,6 +4,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from backend.database import Repository
@@ -164,6 +165,7 @@ class RetrievalEvaluationTests(unittest.TestCase):
         self.assertEqual(len(self.blocks), cold.cache.misses)
         self.assertEqual(len(self.blocks), warm.cache.hits)
         self.assertEqual(2 + len(self.blocks), first_backend.encode_calls)
+        self.assertEqual(1, first_backend.passage_batch_calls)
 
         document_changed = first_retriever.rank(
             self.blocks,
@@ -225,36 +227,38 @@ class RetrievalEvaluationTests(unittest.TestCase):
 
     def test_legacy_retrieval_runs_are_preserved_during_schema_upgrade(self) -> None:
         legacy_path = Path(self.temporary_directory.name) / "legacy.sqlite3"
-        with sqlite3.connect(legacy_path) as connection:
-            connection.execute(
-                """
-                CREATE TABLE retrieval_runs (
-                    run_id TEXT PRIMARY KEY,
-                    document_id TEXT NOT NULL,
-                    field_name TEXT NOT NULL,
-                    query_text TEXT NOT NULL,
-                    k INTEGER NOT NULL,
-                    result_json TEXT NOT NULL,
-                    retrieval_version TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+        with closing(sqlite3.connect(legacy_path)) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    CREATE TABLE retrieval_runs (
+                        run_id TEXT PRIMARY KEY,
+                        document_id TEXT NOT NULL,
+                        field_name TEXT NOT NULL,
+                        query_text TEXT NOT NULL,
+                        k INTEGER NOT NULL,
+                        result_json TEXT NOT NULL,
+                        retrieval_version TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
                 )
-                """
-            )
-            connection.execute(
-                """
-                INSERT INTO retrieval_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    "legacy-run",
-                    "legacy-doc",
-                    "species",
-                    "species",
-                    3,
-                    "{}",
-                    "hybrid-bm25-hash-v1",
-                    "2026-01-01T00:00:00+00:00",
-                ),
-            )
+                connection.execute(
+                    """
+                    INSERT INTO retrieval_runs
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "legacy-run",
+                        "legacy-doc",
+                        "species",
+                        "species",
+                        3,
+                        "{}",
+                        "hybrid-bm25-hash-v1",
+                        "2026-01-01T00:00:00+00:00",
+                    ),
+                )
 
         upgraded = Repository(legacy_path).retrieval_run("legacy-run")
 

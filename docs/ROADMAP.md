@@ -33,13 +33,15 @@ Implemented and tested:
 - document, page, section, block, and bounding-box provenance;
 - `usable`, `relative`, `nodata`, and `failed` screening states;
 - BM25 + character n-gram hashing + terminology + section-prior retrieval;
+- optional pinned `multilingual-e5-small` local neural retrieval;
 - local SQLite state and PDF-hash-based parse reuse;
 - human Gold evidence marking and retrieval metrics;
 - bundled synthetic PDF Demo, frontend workbench, backend tests, and CI.
 
 Not yet implemented as production-ready functionality:
 
-- neural Embedding generation and a persistent vector index;
+- representative multi-paper neural-retrieval quality and throughput evidence;
+- approximate nearest-neighbor indexing for corpora where exact scan is too slow;
 - LLM schema-guided structured extraction and RAG generation;
 - final field-level provenance manifests and structured export;
 - OCR for scanned PDFs and robust table structure extraction;
@@ -151,10 +153,8 @@ First-slice implementation evidence:
   reproducible command, fixture-scale results, and limitations are recorded in
   [the M2 first-slice evaluation](M2_RETRIEVAL_EVALUATION.md).
 
-Current limitation: this slice proves the versioned interface and comparison
-path, not a production neural model or a neural quality improvement. Choosing a
-real model and documenting its license/download/privacy/runtime properties
-remain required before M2 can be marked **Completed**.
+First-slice limitation: this slice proved the versioned interface and
+comparison path, not a production neural model or a neural quality improvement.
 
 Second-slice implementation evidence:
 
@@ -170,6 +170,27 @@ Second-slice implementation evidence:
   enabled/hit/miss/write state;
 - the local learning and implementation history is maintained in
   [the Chinese M2 guide](M2_IMPLEMENTATION_GUIDE_CN.md).
+
+Third-slice implementation evidence:
+
+- the optional local backend pins `intfloat/multilingual-e5-small` to commit
+  `614241f622f53c4eeff9890bdc4f31cfecc418b3` and pins Sentence Transformers,
+  Transformers, and PyTorch runtime versions;
+- the model is lazy-loaded, uses asymmetric `query: ` / `passage: ` prefixes,
+  batches cold passage encoding, normalizes vectors, and never silently falls
+  back to hashing after the user selects the neural backend;
+- core install and CI remain offline and model-free; a separate optional extra
+  enables the real local path, and Python 3.10 compatibility has its own CI job;
+- a frozen three-query synthetic comparison ran from local cached weights and
+  reported Hit@1, Recall@1, MRR, latency, cache counts, backend/model versions,
+  and per-query ranks for both hashing and the real model;
+- both systems scored 1.0 on the tiny fixture, so no neural quality gain is
+  claimed. Broader multi-paper Gold queries remain the next evidence target.
+
+Current M2 limitation: the real model path is runnable and measured, but the
+frozen set is too small to establish quality or throughput beyond the bundled
+Demo. The milestone remains **In progress** while Draft PR #4 is reviewed and
+the evidence boundary is kept explicit.
 
 Out of scope: LLM generation, OCR, and final field extraction.
 

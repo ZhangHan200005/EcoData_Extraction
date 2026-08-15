@@ -45,7 +45,7 @@ def tokenize(text: str) -> list[str]:
 
 
 class EmbeddingBackend(Protocol):
-    """Minimal contract shared by baseline and future neural encoders."""
+    """Minimal contract shared by baseline and neural encoders."""
 
     @property
     def metadata(self) -> RetrievalBackendMetadata: ...
@@ -53,7 +53,12 @@ class EmbeddingBackend(Protocol):
     @property
     def parameters(self) -> dict[str, Any]: ...
 
-    def encode(self, text: str) -> list[float]: ...
+    @property
+    def runtime_status(self) -> dict[str, Any]: ...
+
+    def encode_query(self, text: str) -> list[float]: ...
+
+    def encode_passages(self, texts: list[str]) -> list[list[float]]: ...
 
 
 def embedding_cache_key(
@@ -138,7 +143,15 @@ class HashingEmbeddingBackend:
             "normalization": "l2",
         }
 
-    def encode(self, text: str) -> list[float]:
+    @property
+    def runtime_status(self) -> dict[str, Any]:
+        return {
+            "ready": True,
+            "dependency": "python-standard-library",
+            "dependency_version": "builtin",
+        }
+
+    def _encode(self, text: str) -> list[float]:
         compact = re.sub(r"\s+", " ", normalize(text))
         vector = [0.0] * self.dimensions
         for width in self.ngram_widths:
@@ -152,6 +165,12 @@ class HashingEmbeddingBackend:
                 vector[bucket] += sign
         norm = math.sqrt(sum(value * value for value in vector))
         return [value / norm for value in vector] if norm else vector
+
+    def encode_query(self, text: str) -> list[float]:
+        return self._encode(text)
+
+    def encode_passages(self, texts: list[str]) -> list[list[float]]:
+        return [self._encode(text) for text in texts]
 
 
 # Backward-compatible name for callers that used the original baseline class.
@@ -301,6 +320,10 @@ class EvidenceRetriever:
         return self.vector_cache is not None
 
     @property
+    def backend_runtime_status(self) -> dict[str, Any]:
+        return self.embedding_backend.runtime_status
+
+    @property
     def parameters(self) -> dict[str, Any]:
         return {
             "weights": self.weights.as_dict(),
@@ -341,7 +364,7 @@ class EvidenceRetriever:
         bm25_raw = BM25Index(block_tokens).scores(query_tokens)
         bm25_scores = _minmax(bm25_raw)
         metadata = self.backend_metadata
-        query_vector = self.embedding_backend.encode(query)
+        query_vector = self.embedding_backend.encode_query(query)
         if len(query_vector) != metadata.dimensions:
             raise ValueError(
                 "Embedding backend vector length does not match its metadata"
@@ -362,16 +385,25 @@ class EvidenceRetriever:
             if cache_enabled and self.vector_cache
             else {}
         )
+        missing_indices = [
+            index
+            for index, key in enumerate(cache_keys)
+            if key.cache_key not in cached_vectors
+        ]
+        encoded_missing = self.embedding_backend.encode_passages(
+            [blocks[index].text for index in missing_indices]
+        )
+        if len(encoded_missing) != len(missing_indices):
+            raise ValueError(
+                "Embedding backend returned an unexpected passage count"
+            )
+        encoded_by_index = dict(zip(missing_indices, encoded_missing))
         pending_writes: list[tuple[EmbeddingCacheKey, list[float]]] = []
         block_vectors: list[list[float]] = []
-        for block, key in zip(blocks, cache_keys):
+        for index, key in enumerate(cache_keys):
             vector = cached_vectors.get(key.cache_key)
             if vector is None:
-                vector = self.embedding_backend.encode(block.text)
-                if len(vector) != metadata.dimensions:
-                    raise ValueError(
-                        "Embedding vector length does not match backend metadata"
-                    )
+                vector = encoded_by_index[index]
                 if cache_enabled and self.vector_cache:
                     cache_misses += 1
                     pending_writes.append((key, vector))

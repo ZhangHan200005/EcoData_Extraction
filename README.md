@@ -26,7 +26,7 @@ EcoEvidence 将研究需求拆解为字段 Schema，解析 PDF 全文并生成�
 - 使用 `pdfplumber` / `pypdf` 解析 PDF 全文，生成稳定 block ID。
 - 在 record level 保存论文、页码、章节、类型和 PDF 坐标，支持证据回链。
 - 使用 BM25、字符 n-gram hashing 向量相似度、术语覆盖和章节先验进行可解释的混合召回。
-- 使用可替换、带版本元数据的 Embedding backend 契约运行召回；当前默认 backend 仍是离线 hashing baseline，并记录模型标识、参数和耗时。
+- 使用可替换、带版本元数据的 Embedding backend 契约运行召回；提供固定 revision 的本地 `multilingual-e5-small` 神经 backend，默认仍是离线 hashing baseline，并记录模型标识、运行时参数和耗时。
 - 使用 SQLite 持久化证据块向量，并用文档、文本、backend、模型、参数和维度的组合哈希防止静默复用过期向量。
 - 支持 `usable`、`relative`、`nodata`、`failed` 四级筛选。
 - 支持人工标记 verified Gold evidence，并计算 Hit@K、Recall@K、Precision@K、MRR。
@@ -34,7 +34,7 @@ EcoEvidence 将研究需求拆解为字段 Schema，解析 PDF 全文并生成�
 
 ### 实验中 / 下一步
 
-- 在当前版本化 backend 契约和向量缓存上接入真实神经 Embedding 模型；模型选型和实测收益尚未完成。
+- 扩大冻结 Gold 查询集，评估 `multilingual-e5-small` 相对 hashing baseline 的跨文档质量与 CPU 延迟；当前微型 fixture 不能证明质量提升。
 - 将字段定义与候选证据组合为 RAG 上下文，接入 LLM 结构化抽取。
 - 增加扫描 PDF 的 OCR、表格结构识别、单位标准化和 Schema 校验。
 - 增加字段级导出、人工修改率、单位转换准确率和端到端处理耗时评测。
@@ -63,7 +63,7 @@ PDF 全文解析 ──→ 证据块（文献、页码、章节、坐标）
 
 ### 1. 环境要求
 
-- Python 3.9 或更高
+- Python 3.10 或更高
 - Node.js 22.13 或更高
 
 ### 2. 克隆并安装
@@ -84,6 +84,32 @@ Windows PowerShell 中，Python 安装命令改为：
 py -m venv .venv
 .venv\Scripts\python -m pip install -e .
 ```
+
+默认安装只启用无需模型下载的 hashing baseline。要启用本地神经
+Embedding，安装固定的可选运行时：
+
+```bash
+.venv/bin/python -m pip install -e ".[neural]"
+```
+
+然后选择 pinned `multilingual-e5-small` backend：
+
+```bash
+ECODATA_RETRIEVAL_BACKEND=multilingual-e5-small npm run dev:backend
+```
+
+首次运行会从 Hugging Face 下载约 470 MB 权重到已忽略的
+`data/models/`。模型加载后 query 和论文文本只在本机编码，不调用付费
+API，也不需要密钥。完成首次下载后可以禁止任何模型网络访问：
+
+```bash
+ECODATA_RETRIEVAL_BACKEND=multilingual-e5-small \
+ECODATA_MODEL_LOCAL_FILES_ONLY=1 npm run dev:backend
+```
+
+Windows PowerShell 可用 `$env:ECODATA_RETRIEVAL_BACKEND =
+"multilingual-e5-small"` 设置同名环境变量。没有安装 neural extra 时选择该
+backend，API 会返回可操作的 503 错误，不会静默换用另一模型。
 
 ### 3. 启动后端
 
@@ -153,6 +179,7 @@ tests/            前端生产构建与服务端渲染测试
 - [业务流程](backend/services.py)
 - [PDF 全文解析](backend/pdf_parser.py)
 - [混合召回](backend/retrieval.py)
+- [本地神经 Embedding backend](backend/embedding_backends.py)
 - [检索评估](backend/evaluation.py)
 - [SQLite 数据层](backend/database.py)
 
@@ -160,7 +187,7 @@ tests/            前端生产构建与服务端渲染测试
 
 运行数据默认保存在 `data/ecoevidence.sqlite3`，数据库已被 Git 忽略。PDF 原件不会被复制到其他位置；数据库只记录来源路径和哈希。
 
-当前 Demo 不是通用生产系统。它暂不支持扫描件 OCR、复杂表格结构还原、真实神经 Embedding、LLM 字段抽取、单位自动标准化或最终结构化导出。对外介绍时，请把这些能力表述为 roadmap 或正在集成，而不是已经完成。
+当前 Demo 不是通用生产系统。真实神经 Embedding 已有可选本地运行路径，但只在微型合成 fixture 上验证，尚无跨论文质量提升证据。系统暂不支持扫描件 OCR、复杂表格结构还原、LLM 字段抽取、单位自动标准化或最终结构化导出。对外介绍时，请把未验证能力表述为 roadmap 或正在集成，而不是已经完成。
 
 ## 继续阅读
 

@@ -2,7 +2,7 @@
 
 ## 1. 版本边界
 
-MVP 1.1 只解决到“可量化的证据召回评估”。M2 已把向量编码器改造成带版本元数据的可替换 backend，记录检索参数与耗时，并用 SQLite 安全缓存证据块向量；当前生产默认值仍是 hashing baseline，尚未接入真实神经模型。系统不生成最终科研数据，也不调用大模型编造摘要或数值。
+MVP 1.1 只解决到“可量化的证据召回评估”。M2 已把向量编码器改造成带版本元数据的可替换 backend，记录检索参数与耗时，用 SQLite 安全缓存证据块向量，并提供 pinned `multilingual-e5-small` 本地神经 backend；默认值仍是 hashing baseline。系统不生成最终科研数据，也不调用大模型编造摘要或数值。
 
 ```mermaid
 flowchart LR
@@ -44,6 +44,7 @@ flowchart LR
 | [pdf_parser.py](../backend/pdf_parser.py) | 全文、布局、章节、caption、稳定 ID | OCR 扫描页 |
 | [screening.py](../backend/screening.py) | `usable/relative/nodata/failed` 基线规则 | 最终人工结论 |
 | [retrieval.py](../backend/retrieval.py) | Embedding/cache 契约、缓存身份、查询扩展、BM25、向量相似度和排序 | SQL、模型下载或最终数值抽取 |
+| [embedding_backends.py](../backend/embedding_backends.py) | pinned E5 模型身份、lazy load、query/passage 前缀和本地运行时检查 | 混合排序、HTTP 或模型训练 |
 | [evaluation.py](../backend/evaluation.py) | 对 verified Gold 计算指标 | 自动创造 Gold |
 | [database.py](../backend/database.py) | SQLite 持久化和查询 | 页面展示 |
 | [services.py](../backend/services.py) | 串联用例、哈希复用、重新筛选 | HTTP 细节 |
@@ -86,7 +87,9 @@ block_id, document_id, ordinal, page, section, kind, text, bbox
 + 0.05 × 章节先验
 ```
 
-字符向量是可离线复现的 hashing baseline，不是神经网络 embedding。它的优势是没有模型下载、成本和网络依赖；劣势是语义泛化有限。`EmbeddingBackend` 现在要求每个实现暴露 backend、backend version、model、model version、维度、参数和是否为神经模型。`EvidenceRetriever` 通过该接口取得向量，因此后续领域 embedding 可以对同一证据块、查询、混合权重和 Gold 集运行。
+字符向量是可离线复现的 hashing baseline，不是神经网络 embedding。它的优势是没有模型下载、成本和网络依赖；劣势是语义泛化有限。`EmbeddingBackend` 要求每个实现暴露 backend、backend version、model、model version、维度、参数和是否为神经模型，并分别批量编码 query 和 passages。`EvidenceRetriever` 通过该接口取得向量，因此 hashing 和神经模型可以对同一证据块、查询、混合权重和 Gold 集运行。
+
+可选的 `MultilingualE5SmallEmbeddingBackend` 使用模型 commit `614241f622f53c4eeff9890bdc4f31cfecc418b3`、Sentence Transformers 5.5.1、Transformers 5.15.0 和 PyTorch 2.13.0。query 加 `query: `，证据块加 `passage: `，输出做 L2 归一化。对象创建和 health check 不加载模型；只有首次编码才从本地缓存加载，未缓存且允许下载时才访问 Hugging Face。论文文本和查询不会发送到推理 API。默认 backend 仍是 `hashing`，因此 core 安装和 CI 不需要这些大型依赖。
 
 API 返回当前 backend/model/version、完整参数和单次耗时，评估结果还返回总检索耗时、评估耗时、平均查询耗时以及逐查询的 Gold/top block ID。测试中的 `fixture-deterministic` 只验证接口替换和报告形状，不是神经模型，也不能作为神经检索收益证据。
 

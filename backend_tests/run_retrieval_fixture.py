@@ -1,7 +1,8 @@
-"""Reproduce the M2 first-slice comparison report without network access."""
+"""Reproduce offline M2 reports and optionally run the pinned neural model."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import tempfile
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.database import Repository
+from backend.embedding_backends import MultilingualE5SmallEmbeddingBackend
 from backend.evaluation import RetrievalEvaluator
 from backend.requirement_interpreter import RequirementInterpreter
 from backend.retrieval import EvidenceRetriever
@@ -36,6 +38,7 @@ class DeterministicFixtureEmbeddingBackend:
         self.model_version = model_version
         self.parameter_revision = parameter_revision
         self.encode_calls = 0
+        self.passage_batch_calls = 0
 
     @property
     def metadata(self) -> RetrievalBackendMetadata:
@@ -56,7 +59,15 @@ class DeterministicFixtureEmbeddingBackend:
             "parameter_revision": self.parameter_revision,
         }
 
-    def encode(self, text: str) -> list[float]:
+    @property
+    def runtime_status(self) -> dict[str, Any]:
+        return {
+            "ready": True,
+            "dependency": "test-fixture",
+            "dependency_version": "fixture-v1",
+        }
+
+    def _encode(self, text: str) -> list[float]:
         self.encode_calls += 1
         lowered = text.lower()
         values = [
@@ -67,8 +78,21 @@ class DeterministicFixtureEmbeddingBackend:
         norm = math.sqrt(sum(value * value for value in values))
         return [value / norm for value in values] if norm else values
 
+    def encode_query(self, text: str) -> list[float]:
+        return self._encode(text)
 
-def build_report() -> list[dict[str, Any]]:
+    def encode_passages(self, texts: list[str]) -> list[list[float]]:
+        if texts:
+            self.passage_batch_calls += 1
+        return [self._encode(text) for text in texts]
+
+
+def build_report(
+    *,
+    include_neural: bool = False,
+    model_cache: Path | None = None,
+    local_files_only: bool = False,
+) -> list[dict[str, Any]]:
     fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory() as directory:
         repository = Repository(Path(directory) / "comparison.sqlite3")
@@ -99,18 +123,44 @@ def build_report() -> list[dict[str, Any]]:
             )
 
         request = EvaluationRequest(k_values=[1, 3], gold_status="verified")
+        retrievers = [
+            EvidenceRetriever(vector_cache=repository),
+            EvidenceRetriever(
+                DeterministicFixtureEmbeddingBackend(),
+                vector_cache=repository,
+            ),
+        ]
+        if include_neural:
+            retrievers.append(
+                EvidenceRetriever(
+                    MultilingualE5SmallEmbeddingBackend(
+                        model_cache or Path("data/models"),
+                        local_files_only=local_files_only,
+                    ),
+                    vector_cache=repository,
+                )
+            )
         results = [
             RetrievalEvaluator(repository, retriever).evaluate(spec, request)
-            for retriever in (
-                EvidenceRetriever(vector_cache=repository),
-                EvidenceRetriever(
-                    DeterministicFixtureEmbeddingBackend(),
-                    vector_cache=repository,
-                ),
-            )
+            for retriever in retrievers
         ]
         return [result.model_dump() for result in results]
 
 
 if __name__ == "__main__":
-    print(json.dumps(build_report(), ensure_ascii=False, indent=2))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--include-neural", action="store_true")
+    parser.add_argument("--model-cache", type=Path, default=Path("data/models"))
+    parser.add_argument("--local-files-only", action="store_true")
+    arguments = parser.parse_args()
+    print(
+        json.dumps(
+            build_report(
+                include_neural=arguments.include_neural,
+                model_cache=arguments.model_cache,
+                local_files_only=arguments.local_files_only,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )

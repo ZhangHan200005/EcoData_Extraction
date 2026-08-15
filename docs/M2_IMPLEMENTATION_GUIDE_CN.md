@@ -2,6 +2,8 @@
 
 最后更新：2026-08-15
 
+记录规则：从 `M2-F001` 开始，事实账本只在末尾追加新的连续编号，已写入条目不覆盖、不重排。若旧条目后来发现错误，新增“更正”条目并引用原编号，而不是改写历史。前面的教程章节可以随代码演进修正，但实施轨迹以第 8 节账本为准。
+
 ## 1. 这份文档的用途
 
 这是一份随 M2 实施持续更新的本地说明文档。它回答四个问题：
@@ -13,7 +15,9 @@
 
 公开能力状态以 [ROADMAP.md](ROADMAP.md) 为准。本文件更偏向实现过程、学习路径和设计推理，不把计划中的功能描述成已经完成。
 
-## 2. M2 当前进度
+## 2. M2 建档时进度快照（保留，不覆盖）
+
+下表是本文件建立时的快照，刻意保留当时状态。当前进度请读取第 8 节编号最大的事实条目。
 
 | 子任务 | 状态 | 可验证证据 |
 | --- | --- | --- |
@@ -121,6 +125,9 @@ app/page.tsx
   - `EmbeddingBackend`：向量 backend 必须满足的接口；
   - `HashingEmbeddingBackend`：当前离线 baseline；
   - `EvidenceRetriever.rank()`：BM25、向量相似度和规则特征的组合排序。
+- `backend/embedding_backends.py`
+  - `MultilingualE5SmallEmbeddingBackend`：固定模型、运行时版本、前缀和批量推理；
+  - `build_embedding_backend()`：把配置名称转换为明确 backend，不做静默回退。
 - `backend/database.py`
   - `SCHEMA`：SQLite 表结构；
   - `initialize_database()`：只增列/增表迁移；
@@ -148,7 +155,9 @@ bm25 + vector_similarity + term_coverage + section_prior = 1.0
 ```python
 metadata -> RetrievalBackendMetadata
 parameters -> dict[str, Any]
-encode(text: str) -> list[float]
+runtime_status -> dict[str, Any]
+encode_query(text: str) -> list[float]
+encode_passages(texts: list[str]) -> list[list[float]]
 ```
 
 输出长度必须与 `metadata.dimensions` 一致。模型或预处理行为变化时必须提升对应版本，不能只改代码不改版本。
@@ -173,7 +182,7 @@ npm test
 git diff --check
 ```
 
-## 7. 下一决策点
+## 7. 历史决策点（已在 `M2-F003` 确认）
 
 真实神经模型会带来模型下载、运行时依赖、许可证、隐私和资源占用问题。接入前需要至少比较：
 
@@ -201,3 +210,63 @@ git diff --check
 2. 保留 Python 3.9 公开基线，另行验证一个固定旧版依赖或 ONNX CPU 路径。
 
 未确认前不会修改 Python 版本、下载模型或加入大型依赖。
+
+## 8. 追加式事实账本
+
+### M2-F001 — 版本化 backend 契约
+
+- 时间：2026-08-15
+- 状态：已完成并提交，commit `70b03fe`
+- 事实：hashing 编码器从排序器内部实现变成可替换 backend；检索响应和评估开始记录 backend、model、version、参数与耗时。
+- 验证：离线 deterministic fixture 与 hashing 使用相同 Gold 查询和混合权重。
+- 深入理解：先固定比较接口和测量口径，再引入大型模型，才能区分“模型收益”和“实验管线变化”。
+
+### M2-F002 — stale-safe 持久化向量缓存
+
+- 时间：2026-08-15
+- 状态：已完成并提交，commit `fcc2ed5`
+- 事实：SQLite 按文档、文本、backend/model 版本、维度和参数哈希缓存 block 向量；冷/热缓存和多种失效条件均有离线测试。
+- 验证：Draft PR #4 的 CI #15 通过；缓存测试覆盖文档、文本、模型版本和参数变化。
+- 深入理解：缓存正确性不是“能读回来”，而是任何会改变向量的输入或处理版本都不能误命中旧结果。
+
+### M2-F003 — 模型和 Python 方案获确认
+
+- 时间：2026-08-15
+- 状态：用户已确认
+- 事实：选择将最低 Python 提升到 3.10，使用标准 Sentence Transformers/PyTorch，并以 `multilingual-e5-small` 作为首个真实本地模型。
+- 安全边界：自动测试不下载模型；hashing 保持默认；模型权重不提交 Git；没有付费 API 或密钥要求。
+- 深入理解：这是依赖、许可证、磁盘和运行时都会变化的决策，所以必须先确认再实施。
+
+### M2-F004 — pinned E5 backend 与批量编码
+
+- 时间：2026-08-15
+- 状态：已实现，等待本轮最终提交
+- 事实：模型固定为 `intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3`；运行时固定为 Sentence Transformers 5.5.1、Transformers 5.15.0、PyTorch 2.13.0。
+- 事实：query 使用 `query: `，证据块使用 `passage: `；冷 block 一次批量编码，输出 L2 归一化；模型延迟加载。
+- 配置：`ECODATA_RETRIEVAL_BACKEND=multilingual-e5-small` 显式启用；`ECODATA_MODEL_LOCAL_FILES_ONLY=1` 禁止后续模型网络访问。
+- 修改入口：模型身份和加载行为在 `backend/embedding_backends.py`；backend 选择、batch、device 和缓存目录在 `backend/settings.py`。
+- 深入理解：E5 是非对称检索模型，query/passage 前缀属于模型契约；遗漏前缀不是小参数差异，而是会改变 embedding 语义的版本变化。
+
+### M2-F005 — 首次真实模型冻结 fixture 结果
+
+- 时间：2026-08-15T16:53:01Z
+- 状态：本地运行完成，结果已写入 `docs/M2_RETRIEVAL_EVALUATION.md`
+- 环境：Python 3.13.13、Apple Silicon CPU、本地缓存模式；模型缓存 470 MB、28 个文件，位于 Git 忽略的 `data/models/`。
+- 数据：`synthetic-retrieval-comparison-v1`，1 个合成文档、4 个 block、3 个查询、每查询 1 个 verified Gold。
+- 结果：hashing 和真实 E5 的 Hit@1、Recall@1、MRR 都是 1.0；没有观察到可声称的神经质量提升。
+- E5 耗时：总检索 5160.129207 ms；首个冷查询含模型初始化和 4 个 passage 编码，为 5132.370791 ms；后两个 query 在 block 向量热缓存下分别为 13.743916 ms 和 14.0145 ms。
+- 缓存：首查询 4 miss/4 write，后两查询合计 8 hit；缓存身份记录完整模型和运行时参数。
+- 深入理解：微型 fixture 的满分主要证明“路径和指标工作正常”。要判断模型是否更好，下一数据任务必须加入跨论文、中英文改写、术语同义表达和 hard negatives。
+- 整体位置：M2 核心真实路径已具备；本轮还需完成全套测试、diff 审查、提交、PR 更新和远端 CI。
+
+### M2-F006 — 双运行时本地验收与 SQLite 资源修复
+
+- 时间：2026-08-15
+- 状态：本地验收完成，等待提交和远端 CI
+- 事实：现有轻量 `.venv` 在不安装 neural extra、不下载模型的情况下通过 19 项后端测试；独立 Python 3.13.13 神经运行时也通过相同 19 项测试。
+- 发现：Python 3.13 对未关闭 SQLite connection 发出 `ResourceWarning`；旧 `initialize_database()` 的事务上下文只提交/回滚，不负责关闭连接，legacy migration 测试也有同类问题。
+- 修复：生产初始化和 legacy 测试显式使用 `contextlib.closing`；Python 3.13 测试以 `-W error::ResourceWarning` 运行后无警告通过。
+- 全套验证：`npm run lint`、`npm run test:backend`、`npm test`、`git diff --check` 全部通过；前端包含生产构建和 2 项 rendered-page 测试。
+- Python 3.10：项目元数据最低版本已提升到 3.10，并新增独立 core/offline CI job；本地没有覆盖或删除原 `.venv`。
+- 深入理解：升级解释器不仅是修改 `requires-python`，还要在新运行时用更严格警告发现资源生命周期变化，并让最低支持版本进入 CI。
+- 整体位置：本地实现与验收完成；下一步是 diff/敏感文件审查、语义化提交、推送 Draft PR #4 和监控 CI。

@@ -8,6 +8,28 @@ permissions:
   contents: read
 
 jobs:
+  backend-python-310:
+    name: Backend compatibility (Python 3.10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+
+      - name: Install core Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -e .
+
+      - name: Test offline backend path
+        run: .venv/bin/python -m unittest discover -s backend_tests -v
+
   test:
     name: Lint, build, and test
     runs-on: ubuntu-latest
