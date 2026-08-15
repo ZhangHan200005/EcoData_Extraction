@@ -33,15 +33,37 @@ type DocumentRecord = {
   text_char_count: number;
   parser_status: string;
   parser_warnings: string[];
+  parser_version: string;
+  parser_backend: string;
+  parse_elapsed_ms: number;
   screening_status: "usable" | "relative" | "nodata" | "failed";
   screening_reasons: string[];
   missing_required_fields: string[];
   block_count: number;
+  parent_count: number;
   figure_caption_count: number;
   table_caption_count: number;
+  figure_asset_count: number;
+  table_asset_count: number;
+  visual_assets: VisualAsset[];
   sections: string[];
   covered_fields: string[];
   summary: string;
+};
+
+type VisualAsset = {
+  asset_id: string;
+  page: number;
+  kind: "figure" | "table" | "image";
+  caption: string;
+  bbox: number[];
+  detection_method: string;
+  confidence: number;
+  summary: string;
+  has_structured_content: boolean;
+  digitization_status: string;
+  parser_backend: string;
+  parser_version: string;
 };
 
 type BlockRecord = {
@@ -53,6 +75,11 @@ type BlockRecord = {
   kind: string;
   text: string;
   bbox: number[];
+  raw_text: string;
+  parent_id: string;
+  parent_text: string;
+  chunk_index: number;
+  chunk_count: number;
 };
 
 type GoldRecord = {
@@ -72,6 +99,8 @@ type RetrievalHit = {
   score_components: Record<string, number>;
   matched_terms: string[];
   is_gold: boolean;
+  parent_context: string;
+  context_block_ids: string[];
 };
 
 type RetrievalBackend = {
@@ -747,9 +776,14 @@ export default function Home() {
                             {document.text_char_count.toLocaleString()} 字符
                           </span>
                           <span>{document.block_count} 证据块</span>
-                          <span>{document.figure_caption_count} 图题</span>
-                          <span>{document.table_caption_count} 表题</span>
-                          <span>parser: {document.parser_status}</span>
+                          <span>{document.parent_count} 父段</span>
+                          <span>{document.figure_asset_count} 图/图像</span>
+                          <span>{document.table_asset_count} 表格候选</span>
+                          <span>
+                            parser: {document.parser_backend}/
+                            {document.parser_version}
+                          </span>
+                          <span>{document.parse_elapsed_ms.toFixed(1)} ms</span>
                           {document.missing_required_fields.length ? (
                             <span className="missing">
                               缺失 {document.missing_required_fields.join("、")}
@@ -763,6 +797,44 @@ export default function Home() {
                             ))}
                           </div>
                         ) : null}
+                        {document.visual_assets.length ? (
+                          <details className="visual-inventory">
+                            <summary>
+                              图表概况 · {document.visual_assets.length} 项待核对
+                            </summary>
+                            <div className="visual-asset-grid">
+                              {document.visual_assets.map((asset) => (
+                                <article key={asset.asset_id}>
+                                  <div>
+                                    <strong>
+                                      {asset.kind === "table"
+                                        ? "表格"
+                                        : asset.kind === "figure"
+                                          ? "图"
+                                          : "图像"}
+                                    </strong>
+                                    <span>p.{asset.page}</span>
+                                    <span>
+                                      置信度 {Math.round(asset.confidence * 100)}%
+                                    </span>
+                                  </div>
+                                  <p>{asset.summary}</p>
+                                  <small>
+                                    {asset.detection_method} · bbox [
+                                    {asset.bbox.join(", ")}] ·{" "}
+                                    {asset.has_structured_content
+                                      ? "检测到表格结构"
+                                      : "尚无结构化内容"}
+                                  </small>
+                                </article>
+                              ))}
+                            </div>
+                          </details>
+                        ) : (
+                          <p className="visual-empty">
+                            尚未检测到图题、表题、表格边界或嵌入图像对象。
+                          </p>
+                        )}
                         <details>
                           <summary>查看机器筛选依据</summary>
                           <ul>
@@ -998,6 +1070,15 @@ export default function Home() {
                                         ) : null}
                                       </div>
                                       <p>{hit.block.text}</p>
+                                      {hit.parent_context !== hit.block.text ? (
+                                        <details className="parent-context">
+                                          <summary>
+                                            查看父段上下文 ·{" "}
+                                            {hit.context_block_ids.length} 个子块
+                                          </summary>
+                                          <p>{hit.parent_context}</p>
+                                        </details>
+                                      ) : null}
                                       <div className="comparison-hit-score">
                                         <span>总分 {hit.score.toFixed(3)}</span>
                                         <span>
@@ -1088,6 +1169,14 @@ export default function Home() {
                               <strong>{hit.score.toFixed(3)}</strong>
                             </div>
                             <p>{hit.block.text}</p>
+                            {hit.parent_context !== hit.block.text ? (
+                              <details className="parent-context">
+                                <summary>
+                                  查看父段上下文 · {hit.context_block_ids.length} 个子块
+                                </summary>
+                                <p>{hit.parent_context}</p>
+                              </details>
+                            ) : null}
                             <div className="score-bars">
                               {Object.entries(hit.score_components).map(
                                 ([name, value]) => (

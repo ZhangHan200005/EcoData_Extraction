@@ -19,6 +19,7 @@ from .schemas import (
     RetrievalCacheStats,
     RetrievalHit,
 )
+from .settings import settings
 
 
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9₂⁻−-]*|\d+(?:\.\d+)?|[\u4e00-\u9fff]+")
@@ -358,6 +359,13 @@ class EvidenceRetriever:
             "weights": self.weights.as_dict(),
             "embedding": self.embedding_backend.parameters,
             "bm25": {"k1": 1.5, "b": 0.75},
+            "section_policy": {"references_score_multiplier": 0.25},
+            "chunking": {
+                "version": settings.chunking_version,
+                "strategy": "child-rank-parent-context",
+                "child_target_chars": 480,
+                "child_max_chars": 680,
+            },
             "vector_cache": {
                 "enabled": self.cache_enabled,
                 "key_version": EMBEDDING_CACHE_KEY_VERSION,
@@ -459,6 +467,12 @@ class EvidenceRetriever:
             ]
         expected_sections = self._expected_sections(field_name)
         gold = gold_block_ids or set()
+        context_ids_by_parent: dict[str, list[str]] = {}
+        for block in blocks:
+            parent_key = block.parent_id or block.block_id
+            context_ids_by_parent.setdefault(parent_key, []).append(
+                block.block_id
+            )
         hits: list[RetrievalHit] = []
         lowered_terms = [normalize(term) for term in terms if term.strip()]
         for index, block in enumerate(blocks):
@@ -483,6 +497,10 @@ class EvidenceRetriever:
                 + self.weights.term_coverage * lexical_coverage
                 + self.weights.section_prior * section_prior
             )
+            reference_multiplier = (
+                0.25 if block.section == "references" else 1.0
+            )
+            score *= reference_multiplier
             hits.append(
                 RetrievalHit(
                     rank=0,
@@ -493,9 +511,14 @@ class EvidenceRetriever:
                         "semantic": round(semantic_scores[index], 6),
                         "term_coverage": round(lexical_coverage, 6),
                         "section_prior": round(section_prior, 6),
+                        "reference_multiplier": reference_multiplier,
                     },
                     matched_terms=matched,
                     is_gold=block.block_id in gold,
+                    parent_context=block.parent_text or block.text,
+                    context_block_ids=context_ids_by_parent[
+                        block.parent_id or block.block_id
+                    ],
                 )
             )
         hits.sort(key=lambda hit: (-hit.score, hit.block.ordinal))

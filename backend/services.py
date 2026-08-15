@@ -90,6 +90,7 @@ class EcoEvidenceService:
         overviews: list[dict] = []
         for document in self.repository.list_documents():
             blocks = self.repository.blocks(document.document_id)
+            assets = self.repository.visual_assets(document.document_id)
             lowered_text = "\n".join(block.text.lower() for block in blocks)
             covered_fields = [
                 field.label
@@ -106,6 +107,13 @@ class EcoEvidenceService:
             table_count = sum(
                 block.kind == "table_caption" for block in blocks
             )
+            parent_count = len(
+                {block.parent_id for block in blocks if block.parent_id}
+            )
+            figure_asset_count = sum(
+                asset.kind in {"figure", "image"} for asset in assets
+            )
+            table_asset_count = sum(asset.kind == "table" for asset in assets)
             sections = sorted(
                 {
                     block.section
@@ -127,14 +135,19 @@ class EcoEvidenceService:
                 summary = (
                     f"全文 {document.page_count} 页、{len(blocks)} 个证据块；"
                     f"已定位 {field_text}；"
-                    f"识别到 {figure_count} 个图题、{table_count} 个表题。"
+                    f"识别到 {figure_asset_count} 个图/图像、"
+                    f"{table_asset_count} 个表格候选。"
                 )
             overviews.append(
                 {
                     **document.model_dump(),
                     "block_count": len(blocks),
+                    "parent_count": parent_count,
                     "figure_caption_count": figure_count,
                     "table_caption_count": table_count,
+                    "figure_asset_count": figure_asset_count,
+                    "table_asset_count": table_asset_count,
+                    "visual_assets": [asset.model_dump() for asset in assets],
                     "sections": sections,
                     "covered_fields": list(dict.fromkeys(covered_fields)),
                     "summary": summary,
@@ -160,14 +173,16 @@ class EcoEvidenceService:
             ):
                 reused += 1
                 continue
-            document, blocks = self.parser.parse(path)
+            document, blocks, assets = self.parser.parse_with_assets(path)
             if spec:
                 document = self.screener.screen(document, blocks, spec)
             if document.parser_status == "failed":
                 failed += 1
             else:
                 parsed += 1
-            self.repository.save_document(document, blocks, utc_now())
+            self.repository.save_document(
+                document, blocks, utc_now(), assets=assets
+            )
         if spec:
             self.rescreen_documents(spec)
         return SyncResult(

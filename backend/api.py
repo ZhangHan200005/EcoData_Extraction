@@ -19,6 +19,7 @@ from .schemas import (
     RetrievalRequest,
     RetrievalResponse,
     SyncResult,
+    VisualAssetRecord,
 )
 from .services import EcoEvidenceService
 from .settings import settings
@@ -53,6 +54,8 @@ def health() -> dict:
         "source_directory": str(settings.source_directory),
         "database_path": str(settings.database_path),
         "parser_version": settings.parser_version,
+        "parser_backend": settings.parser_backend,
+        "chunking_version": settings.chunking_version,
         "retrieval_version": settings.retrieval_version,
         "retrieval_backend": service.retriever.backend_metadata.model_dump(),
         "retrieval_backend_runtime": (
@@ -104,6 +107,16 @@ def document_blocks(
         "blocks": repository.blocks(document_id, query=query, limit=limit),
         "query": query,
     }
+
+
+@app.get(
+    "/api/documents/{document_id}/assets",
+    response_model=list[VisualAssetRecord],
+)
+def document_assets(document_id: str) -> list[VisualAssetRecord]:
+    if not repository.document(document_id):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return repository.visual_assets(document_id)
 
 
 @app.post("/api/retrieve", response_model=RetrievalResponse)

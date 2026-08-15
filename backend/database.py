@@ -15,6 +15,7 @@ from .schemas import (
     GoldEvidenceRecord,
     ProjectSpec,
     RetrievalResponse,
+    VisualAssetRecord,
 )
 from .settings import settings
 
@@ -40,6 +41,8 @@ CREATE TABLE IF NOT EXISTS documents (
     parser_status TEXT NOT NULL,
     parser_warnings_json TEXT NOT NULL,
     parser_version TEXT NOT NULL,
+    parser_backend TEXT NOT NULL DEFAULT 'pdfplumber',
+    parse_elapsed_ms REAL NOT NULL DEFAULT 0,
     screening_status TEXT NOT NULL,
     screening_reasons_json TEXT NOT NULL,
     missing_required_fields_json TEXT NOT NULL,
@@ -55,6 +58,11 @@ CREATE TABLE IF NOT EXISTS blocks (
     kind TEXT NOT NULL,
     text TEXT NOT NULL,
     bbox_json TEXT NOT NULL,
+    raw_text TEXT NOT NULL DEFAULT '',
+    parent_id TEXT NOT NULL DEFAULT '',
+    parent_text TEXT NOT NULL DEFAULT '',
+    chunk_index INTEGER NOT NULL DEFAULT 0,
+    chunk_count INTEGER NOT NULL DEFAULT 1,
     FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE
 );
 
@@ -63,6 +71,26 @@ ON blocks(document_id, ordinal);
 
 CREATE INDEX IF NOT EXISTS blocks_document_page_idx
 ON blocks(document_id, page);
+
+CREATE TABLE IF NOT EXISTS visual_assets (
+    asset_id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    page INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    caption TEXT NOT NULL,
+    bbox_json TEXT NOT NULL,
+    detection_method TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    summary TEXT NOT NULL,
+    has_structured_content INTEGER NOT NULL DEFAULT 0,
+    digitization_status TEXT NOT NULL,
+    parser_backend TEXT NOT NULL,
+    parser_version TEXT NOT NULL,
+    FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS visual_assets_document_page_idx
+ON visual_assets(document_id, page, kind);
 
 CREATE TABLE IF NOT EXISTS gold_evidence (
     gold_id TEXT PRIMARY KEY,
@@ -145,6 +173,19 @@ RETRIEVAL_RUN_MIGRATIONS = {
     "vector_cache_writes": "INTEGER NOT NULL DEFAULT 0",
 }
 
+DOCUMENT_MIGRATIONS = {
+    "parser_backend": "TEXT NOT NULL DEFAULT 'pdfplumber'",
+    "parse_elapsed_ms": "REAL NOT NULL DEFAULT 0",
+}
+
+BLOCK_MIGRATIONS = {
+    "raw_text": "TEXT NOT NULL DEFAULT ''",
+    "parent_id": "TEXT NOT NULL DEFAULT ''",
+    "parent_text": "TEXT NOT NULL DEFAULT ''",
+    "chunk_index": "INTEGER NOT NULL DEFAULT 0",
+    "chunk_count": "INTEGER NOT NULL DEFAULT 1",
+}
+
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
@@ -170,6 +211,28 @@ def initialize_database(path: Path | None = None) -> None:
                         "ALTER TABLE retrieval_runs ADD COLUMN "
                         f"{column} {declaration}"
                     )
+            for table, migrations in (
+                ("documents", DOCUMENT_MIGRATIONS),
+                ("blocks", BLOCK_MIGRATIONS),
+            ):
+                existing_columns = {
+                    row[1]
+                    for row in connection.execute(
+                        f"PRAGMA table_info({table})"
+                    ).fetchall()
+                }
+                for column, declaration in migrations.items():
+                    if column not in existing_columns:
+                        connection.execute(
+                            f"ALTER TABLE {table} ADD COLUMN "
+                            f"{column} {declaration}"
+                        )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS blocks_document_parent_idx
+                ON blocks(document_id, parent_id, chunk_index)
+                """
+            )
 
 
 @contextmanager
@@ -238,17 +301,52 @@ class Repository:
         document: DocumentRecord,
         blocks: list[BlockRecord],
         updated_at: str,
+        assets: list[VisualAssetRecord] | None = None,
     ) -> None:
         with connect(self.path) as connection:
+            gold_block_ids = {
+                row["block_id"]
+                for row in connection.execute(
+                    "SELECT block_id FROM gold_evidence WHERE document_id = ?",
+                    (document.document_id,),
+                ).fetchall()
+            }
+            new_block_ids = {block.block_id for block in blocks}
+            missing_gold = sorted(gold_block_ids - new_block_ids)
+            if missing_gold:
+                raise ValueError(
+                    "Parser output would invalidate verified evidence. "
+                    f"Preserved the existing document; {len(missing_gold)} Gold "
+                    "block(s) require an explicit migration."
+                )
             connection.execute(
                 """
-                INSERT OR REPLACE INTO documents (
+                INSERT INTO documents (
                     document_id, sha256, filename, source_path, title,
                     publication_year, language, page_count, text_char_count,
                     parser_status, parser_warnings_json, parser_version,
+                    parser_backend, parse_elapsed_ms,
                     screening_status, screening_reasons_json,
                     missing_required_fields_json, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(document_id) DO UPDATE SET
+                    sha256=excluded.sha256,
+                    filename=excluded.filename,
+                    source_path=excluded.source_path,
+                    title=excluded.title,
+                    publication_year=excluded.publication_year,
+                    language=excluded.language,
+                    page_count=excluded.page_count,
+                    text_char_count=excluded.text_char_count,
+                    parser_status=excluded.parser_status,
+                    parser_warnings_json=excluded.parser_warnings_json,
+                    parser_version=excluded.parser_version,
+                    parser_backend=excluded.parser_backend,
+                    parse_elapsed_ms=excluded.parse_elapsed_ms,
+                    screening_status=excluded.screening_status,
+                    screening_reasons_json=excluded.screening_reasons_json,
+                    missing_required_fields_json=excluded.missing_required_fields_json,
+                    updated_at=excluded.updated_at
                 """,
                 (
                     document.document_id,
@@ -263,21 +361,34 @@ class Repository:
                     document.parser_status,
                     _json(document.parser_warnings),
                     document.parser_version,
+                    document.parser_backend,
+                    document.parse_elapsed_ms,
                     document.screening_status,
                     _json(document.screening_reasons),
                     _json(document.missing_required_fields),
                     updated_at,
                 ),
             )
-            connection.execute(
-                "DELETE FROM blocks WHERE document_id = ?", (document.document_id,)
-            )
             connection.executemany(
                 """
                 INSERT INTO blocks (
                     block_id, document_id, ordinal, page, section,
-                    kind, text, bbox_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    kind, text, bbox_json, raw_text, parent_id,
+                    parent_text, chunk_index, chunk_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(block_id) DO UPDATE SET
+                    document_id=excluded.document_id,
+                    ordinal=excluded.ordinal,
+                    page=excluded.page,
+                    section=excluded.section,
+                    kind=excluded.kind,
+                    text=excluded.text,
+                    bbox_json=excluded.bbox_json,
+                    raw_text=excluded.raw_text,
+                    parent_id=excluded.parent_id,
+                    parent_text=excluded.parent_text,
+                    chunk_index=excluded.chunk_index,
+                    chunk_count=excluded.chunk_count
                 """,
                 [
                     (
@@ -289,8 +400,57 @@ class Repository:
                         block.kind,
                         block.text,
                         _json(block.bbox),
+                        block.raw_text,
+                        block.parent_id,
+                        block.parent_text,
+                        block.chunk_index,
+                        block.chunk_count,
                     )
                     for block in blocks
+                ],
+            )
+            stale_block_ids = {
+                row["block_id"]
+                for row in connection.execute(
+                    "SELECT block_id FROM blocks WHERE document_id = ?",
+                    (document.document_id,),
+                ).fetchall()
+            } - new_block_ids
+            if stale_block_ids:
+                connection.executemany(
+                    "DELETE FROM blocks WHERE block_id = ?",
+                    [(block_id,) for block_id in sorted(stale_block_ids)],
+                )
+            connection.execute(
+                "DELETE FROM visual_assets WHERE document_id = ?",
+                (document.document_id,),
+            )
+            connection.executemany(
+                """
+                INSERT INTO visual_assets (
+                    asset_id, document_id, page, kind, caption, bbox_json,
+                    detection_method, confidence, summary,
+                    has_structured_content, digitization_status,
+                    parser_backend, parser_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        asset.asset_id,
+                        asset.document_id,
+                        asset.page,
+                        asset.kind,
+                        asset.caption,
+                        _json(asset.bbox),
+                        asset.detection_method,
+                        asset.confidence,
+                        asset.summary,
+                        int(asset.has_structured_content),
+                        asset.digitization_status,
+                        asset.parser_backend,
+                        asset.parser_version,
+                    )
+                    for asset in assets or []
                 ],
             )
 
@@ -337,6 +497,18 @@ class Repository:
                 "SELECT * FROM blocks WHERE block_id = ?", (block_id,)
             ).fetchone()
         return self._block(row) if row else None
+
+    def visual_assets(self, document_id: str) -> list[VisualAssetRecord]:
+        with connect(self.path) as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM visual_assets
+                WHERE document_id = ?
+                ORDER BY page, kind, asset_id
+                """,
+                (document_id,),
+            ).fetchall()
+        return [self._visual_asset(row) for row in rows]
 
     def get_embedding_vectors(
         self, keys: list[EmbeddingCacheKey]
@@ -594,6 +766,8 @@ class Repository:
             parser_status=row["parser_status"],
             parser_warnings=json.loads(row["parser_warnings_json"]),
             parser_version=row["parser_version"],
+            parser_backend=row["parser_backend"],
+            parse_elapsed_ms=row["parse_elapsed_ms"],
             screening_status=row["screening_status"],
             screening_reasons=json.loads(row["screening_reasons_json"]),
             missing_required_fields=json.loads(
@@ -612,6 +786,29 @@ class Repository:
             kind=row["kind"],
             text=row["text"],
             bbox=json.loads(row["bbox_json"]),
+            raw_text=row["raw_text"],
+            parent_id=row["parent_id"],
+            parent_text=row["parent_text"],
+            chunk_index=row["chunk_index"],
+            chunk_count=row["chunk_count"],
+        )
+
+    @staticmethod
+    def _visual_asset(row: sqlite3.Row) -> VisualAssetRecord:
+        return VisualAssetRecord(
+            asset_id=row["asset_id"],
+            document_id=row["document_id"],
+            page=row["page"],
+            kind=row["kind"],
+            caption=row["caption"],
+            bbox=json.loads(row["bbox_json"]),
+            detection_method=row["detection_method"],
+            confidence=row["confidence"],
+            summary=row["summary"],
+            has_structured_content=bool(row["has_structured_content"]),
+            digitization_status=row["digitization_status"],
+            parser_backend=row["parser_backend"],
+            parser_version=row["parser_version"],
         )
 
     @staticmethod

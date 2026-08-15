@@ -34,6 +34,13 @@ class ApiConfigurationTests(unittest.TestCase):
             "embedding-cache-key-v1",
             payload["vector_cache"]["key_version"],
         )
+        self.assertEqual("pdfplumber", payload["parser_backend"])
+        self.assertEqual(
+            "pdfplumber-reading-order-v2", payload["parser_version"]
+        )
+        self.assertEqual(
+            "parent-child-480char-v1", payload["chunking_version"]
+        )
 
 
 if __name__ == "__main__":

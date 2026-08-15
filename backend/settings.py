@@ -65,8 +65,12 @@ class Settings:
     embedding_local_files_only: bool = _env_bool(
         "ECODATA_MODEL_LOCAL_FILES_ONLY", False
     )
-    parser_version: str = "pdfplumber-layout-v1"
-    retrieval_version: str = "hybrid-neural-embedding-v5"
+    parser_backend: str = os.environ.get(
+        "ECODATA_PARSER_BACKEND", "pdfplumber"
+    ).strip()
+    parser_version: str = "pdfplumber-reading-order-v2"
+    chunking_version: str = "parent-child-480char-v1"
+    retrieval_version: str = "hybrid-parent-context-v6"
 
 
 settings = Settings()
