@@ -229,3 +229,15 @@
   再回到 0，PDF 第 3 页链接实际打开，浏览器控制台无 warning/error。
 - 验收结束后本地实验库仍是 0 条文本 Gold、0 条视觉标注，不留下机器测试
   标签干扰后续人工判断。
+
+### M5-F019 — 视觉 Gold 远端发布状态
+
+- 功能提交为 `7ca2373 feat: add visual evidence Gold annotations`，已推送到
+  `feature/pdf-parsing`，没有直接修改 `main`。
+- Draft PR #5 已更新为“improve PDF parsing and visual evidence review”，
+  仍以 `main` 为目标并保持 Draft：
+  <https://github.com/ZhangHan200005/EcoData_Extraction/pull/5>。
+- GitHub Actions CI run #32 已在该功能提交上完成，结论为 success；本地
+  对应验证为 34 个后端测试、前端生产构建、2 个页面测试和 lint 全部通过。
+- E5 neural extra 本轮没有安装或下载；视觉标注功能及自动测试不依赖模型、
+  付费 API 或密钥。
