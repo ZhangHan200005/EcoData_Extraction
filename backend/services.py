@@ -30,6 +30,8 @@ from .schemas import (
     RetrievalComparisonResponse,
     RetrievalResponse,
     SyncResult,
+    VisualEvidenceAnnotationInput,
+    VisualEvidenceAnnotationRecord,
 )
 from .screening import DocumentScreener
 from .settings import settings
@@ -421,6 +423,24 @@ class EcoEvidenceService:
         return self.repository.save_gold(
             GoldEvidenceRecord(
                 gold_id=f"gold-{uuid4().hex[:12]}",
+                created_at=utc_now(),
+                **payload.model_dump(),
+            )
+        )
+
+    def add_visual_annotation(
+        self, payload: VisualEvidenceAnnotationInput
+    ) -> VisualEvidenceAnnotationRecord:
+        if not self.repository.document(payload.document_id):
+            raise KeyError(f"Unknown document: {payload.document_id}")
+        asset = self.repository.visual_asset(payload.asset_id)
+        if not asset or asset.document_id != payload.document_id:
+            raise KeyError(
+                f"Unknown visual asset for document: {payload.asset_id}"
+            )
+        return self.repository.save_visual_annotation(
+            VisualEvidenceAnnotationRecord(
+                annotation_id=f"visual-gold-{uuid4().hex[:12]}",
                 created_at=utc_now(),
                 **payload.model_dump(),
             )

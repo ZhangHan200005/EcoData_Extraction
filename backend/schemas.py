@@ -208,6 +208,20 @@ class GoldEvidenceRecord(GoldEvidenceInput):
     created_at: str
 
 
+class VisualEvidenceAnnotationInput(BaseModel):
+    document_id: str
+    field_name: str
+    asset_id: str
+    relevance: Literal["relevant", "not_relevant", "uncertain"]
+    status: Literal["draft", "verified"] = "verified"
+    note: str = ""
+
+
+class VisualEvidenceAnnotationRecord(VisualEvidenceAnnotationInput):
+    annotation_id: str
+    created_at: str
+
+
 class EvaluationRequest(BaseModel):
     k_values: list[int] = Field(default_factory=lambda: [3, 5, 10])
     gold_status: Literal["verified", "all"] = "verified"

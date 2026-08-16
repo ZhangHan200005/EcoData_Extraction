@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from .database import Repository, initialize_database
 from .embedding_backends import EmbeddingBackendUnavailableError
@@ -19,6 +22,8 @@ from .schemas import (
     RetrievalRequest,
     RetrievalResponse,
     SyncResult,
+    VisualEvidenceAnnotationInput,
+    VisualEvidenceAnnotationRecord,
     VisualAssetRecord,
 )
 from .services import EcoEvidenceService
@@ -74,6 +79,7 @@ def state() -> dict:
         "spec": service.current_spec(),
         "documents": service.document_overviews(),
         "gold": repository.list_gold(),
+        "visual_annotations": repository.list_visual_annotations(),
         "latest_evaluation": repository.latest_evaluation(),
         "source_directory": str(settings.source_directory),
     }
@@ -117,6 +123,17 @@ def document_assets(document_id: str) -> list[VisualAssetRecord]:
     if not repository.document(document_id):
         raise HTTPException(status_code=404, detail="Document not found")
     return repository.visual_assets(document_id)
+
+
+@app.get("/api/documents/{document_id}/pdf", response_class=FileResponse)
+def document_pdf(document_id: str) -> FileResponse:
+    document = repository.document(document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    source_path = Path(document.source_path)
+    if not source_path.is_file():
+        raise HTTPException(status_code=404, detail="Source PDF not found")
+    return FileResponse(source_path, media_type="application/pdf")
 
 
 @app.post("/api/retrieve", response_model=RetrievalResponse)
@@ -174,6 +191,40 @@ def add_gold(payload: GoldEvidenceInput) -> GoldEvidenceRecord:
 @app.delete("/api/gold/{gold_id}")
 def delete_gold(gold_id: str) -> dict:
     repository.delete_gold(gold_id)
+    return {"ok": True}
+
+
+@app.get(
+    "/api/visual-annotations",
+    response_model=list[VisualEvidenceAnnotationRecord],
+)
+def list_visual_annotations(
+    document_id: str = "",
+    field_name: str = "",
+    status: str = "",
+    relevance: str = "",
+) -> list[VisualEvidenceAnnotationRecord]:
+    return repository.list_visual_annotations(
+        document_id, field_name, status, relevance
+    )
+
+
+@app.post(
+    "/api/visual-annotations",
+    response_model=VisualEvidenceAnnotationRecord,
+)
+def add_visual_annotation(
+    payload: VisualEvidenceAnnotationInput,
+) -> VisualEvidenceAnnotationRecord:
+    try:
+        return service.add_visual_annotation(payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/api/visual-annotations/{annotation_id}")
+def delete_visual_annotation(annotation_id: str) -> dict:
+    repository.delete_visual_annotation(annotation_id)
     return {"ok": True}
 
 

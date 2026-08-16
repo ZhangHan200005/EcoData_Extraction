@@ -192,3 +192,40 @@
   rendered-page tests 和 `git diff --check`。
 - 这证明当前垂直切片满足仓库自动化验收；它不证明视觉候选准确率或检索
   效果已经达到目标，这两项仍需人工 Gold 与后续量化评估。
+
+### M5-F016 — 为什么 E5 对比列显示不可用
+
+- 三路对比中的 E5 列不是 hashing 的别名；选择 E5 后系统必须找到固定版本
+  的 `sentence-transformers`、`transformers` 和 `torch`，否则明确返回
+  unavailable，不允许静默退回 hashing。
+- 当前 `.venv` 是默认轻量安装，只包含 BM25/hashing 所需依赖，所以网页
+  正确显示 neural extra 未安装。M2 的“已实现”表示代码路径、固定版本、
+  离线测试和可选安装方式存在，不表示每台开发机已下载约 470 MB 模型。
+- 启用方式仍是 `.venv/bin/python -m pip install -e ".[neural]"`，随后首次
+  加载固定 E5 revision。该动作涉及大型模型下载，本轮没有擅自执行。
+- BM25 和 hashing 的结果仍是真实运行结果；E5 unavailable 是一项运行时
+  状态，不是第三个伪造分数。
+
+### M5-F017 — 文本 Gold 与视觉 Gold 必须分开
+
+- 文本 Gold 引用 `block_id`，用于评价文本 child retrieval 的 Hit@K、
+  Recall@K、Precision@K 和 MRR。
+- 视觉标注引用 `asset_id`，按 `(document_id, field_name, asset_id)` 保存，
+  可取 `relevant`、`not_relevant` 或 `uncertain`；只有 verified relevant
+  才称为视觉相关 Gold。
+- 当前文本检索器不排序 visual asset，因此视觉 Gold 不进入文本 Recall
+  分母。把两种 Gold 合并会错误惩罚一个根本没有机会返回图表资产的检索器。
+- 重解析现在增量 upsert visual asset；如果新 parser 会让已标注 asset ID
+  消失，整个事务拒绝覆盖，与文本 Gold 采用相同的数据安全原则。
+
+### M5-F018 — 视觉 Gold 网页操作与验收
+
+- 第 03 步新增“图表证据独立标注”，可按图、表格、图像/扫描页过滤当前
+  论文的视觉候选，并针对当前字段选择相关 Gold、无关或待定，也可清除。
+- 每张卡展示页码、候选置信度、caption/summary、检测方法、bbox 和 parser
+  版本；“查看 PDF 第 N 页”打开数据库已登记的源 PDF 对应页，避免只根据
+  caption 猜测内容。
+- 真实 15 篇工作台完成一次“相关 Gold → 保存 → 清除”往返；计数从 0 变 1
+  再回到 0，PDF 第 3 页链接实际打开，浏览器控制台无 warning/error。
+- 验收结束后本地实验库仍是 0 条文本 Gold、0 条视觉标注，不留下机器测试
+  标签干扰后续人工判断。

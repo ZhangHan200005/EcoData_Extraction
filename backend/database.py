@@ -15,6 +15,7 @@ from .schemas import (
     GoldEvidenceRecord,
     ProjectSpec,
     RetrievalResponse,
+    VisualEvidenceAnnotationRecord,
     VisualAssetRecord,
 )
 from .settings import settings
@@ -107,6 +108,23 @@ CREATE TABLE IF NOT EXISTS gold_evidence (
 
 CREATE INDEX IF NOT EXISTS gold_query_idx
 ON gold_evidence(document_id, field_name, status);
+
+CREATE TABLE IF NOT EXISTS visual_evidence_annotations (
+    annotation_id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    field_name TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    relevance TEXT NOT NULL,
+    status TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(document_id, field_name, asset_id),
+    FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+    FOREIGN KEY(asset_id) REFERENCES visual_assets(asset_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS visual_annotation_query_idx
+ON visual_evidence_annotations(document_id, field_name, status, relevance);
 
 CREATE TABLE IF NOT EXISTS retrieval_runs (
     run_id TEXT PRIMARY KEY,
@@ -319,6 +337,27 @@ class Repository:
                     f"Preserved the existing document; {len(missing_gold)} Gold "
                     "block(s) require an explicit migration."
                 )
+            annotated_asset_ids = {
+                row["asset_id"]
+                for row in connection.execute(
+                    """
+                    SELECT asset_id FROM visual_evidence_annotations
+                    WHERE document_id = ?
+                    """,
+                    (document.document_id,),
+                ).fetchall()
+            }
+            new_asset_ids = {asset.asset_id for asset in assets or []}
+            missing_annotated_assets = sorted(
+                annotated_asset_ids - new_asset_ids
+            )
+            if missing_annotated_assets:
+                raise ValueError(
+                    "Parser output would invalidate visual evidence "
+                    f"annotations. Preserved the existing document; "
+                    f"{len(missing_annotated_assets)} annotated asset(s) "
+                    "require an explicit migration."
+                )
             connection.execute(
                 """
                 INSERT INTO documents (
@@ -421,10 +460,6 @@ class Repository:
                     "DELETE FROM blocks WHERE block_id = ?",
                     [(block_id,) for block_id in sorted(stale_block_ids)],
                 )
-            connection.execute(
-                "DELETE FROM visual_assets WHERE document_id = ?",
-                (document.document_id,),
-            )
             connection.executemany(
                 """
                 INSERT INTO visual_assets (
@@ -433,6 +468,19 @@ class Repository:
                     has_structured_content, digitization_status,
                     parser_backend, parser_version
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(asset_id) DO UPDATE SET
+                    document_id=excluded.document_id,
+                    page=excluded.page,
+                    kind=excluded.kind,
+                    caption=excluded.caption,
+                    bbox_json=excluded.bbox_json,
+                    detection_method=excluded.detection_method,
+                    confidence=excluded.confidence,
+                    summary=excluded.summary,
+                    has_structured_content=excluded.has_structured_content,
+                    digitization_status=excluded.digitization_status,
+                    parser_backend=excluded.parser_backend,
+                    parser_version=excluded.parser_version
                 """,
                 [
                     (
@@ -453,6 +501,18 @@ class Repository:
                     for asset in assets or []
                 ],
             )
+            stale_asset_ids = {
+                row["asset_id"]
+                for row in connection.execute(
+                    "SELECT asset_id FROM visual_assets WHERE document_id = ?",
+                    (document.document_id,),
+                ).fetchall()
+            } - new_asset_ids
+            if stale_asset_ids:
+                connection.executemany(
+                    "DELETE FROM visual_assets WHERE asset_id = ?",
+                    [(asset_id,) for asset_id in sorted(stale_asset_ids)],
+                )
 
     def update_screening(self, document: DocumentRecord, updated_at: str) -> None:
         with connect(self.path) as connection:
@@ -509,6 +569,13 @@ class Repository:
                 (document_id,),
             ).fetchall()
         return [self._visual_asset(row) for row in rows]
+
+    def visual_asset(self, asset_id: str) -> VisualAssetRecord | None:
+        with connect(self.path) as connection:
+            row = connection.execute(
+                "SELECT * FROM visual_assets WHERE asset_id = ?", (asset_id,)
+            ).fetchone()
+        return self._visual_asset(row) if row else None
 
     def get_embedding_vectors(
         self, keys: list[EmbeddingCacheKey]
@@ -672,6 +739,77 @@ class Repository:
             rows = connection.execute(sql, parameters).fetchall()
         return [self._gold(row) for row in rows]
 
+    def save_visual_annotation(
+        self, record: VisualEvidenceAnnotationRecord
+    ) -> VisualEvidenceAnnotationRecord:
+        with connect(self.path) as connection:
+            connection.execute(
+                """
+                INSERT INTO visual_evidence_annotations (
+                    annotation_id, document_id, field_name, asset_id,
+                    relevance, status, note, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(document_id, field_name, asset_id)
+                DO UPDATE SET relevance=excluded.relevance,
+                              status=excluded.status,
+                              note=excluded.note
+                """,
+                (
+                    record.annotation_id,
+                    record.document_id,
+                    record.field_name,
+                    record.asset_id,
+                    record.relevance,
+                    record.status,
+                    record.note,
+                    record.created_at,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM visual_evidence_annotations
+                WHERE document_id = ? AND field_name = ? AND asset_id = ?
+                """,
+                (record.document_id, record.field_name, record.asset_id),
+            ).fetchone()
+        return self._visual_annotation(row)
+
+    def delete_visual_annotation(self, annotation_id: str) -> None:
+        with connect(self.path) as connection:
+            connection.execute(
+                """
+                DELETE FROM visual_evidence_annotations
+                WHERE annotation_id = ?
+                """,
+                (annotation_id,),
+            )
+
+    def list_visual_annotations(
+        self,
+        document_id: str = "",
+        field_name: str = "",
+        status: str = "",
+        relevance: str = "",
+    ) -> list[VisualEvidenceAnnotationRecord]:
+        clauses: list[str] = []
+        parameters: list[str] = []
+        for column, value in (
+            ("document_id", document_id),
+            ("field_name", field_name),
+            ("status", status),
+            ("relevance", relevance),
+        ):
+            if value:
+                clauses.append(f"{column} = ?")
+                parameters.append(value)
+        sql = "SELECT * FROM visual_evidence_annotations"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY created_at, annotation_id"
+        with connect(self.path) as connection:
+            rows = connection.execute(sql, parameters).fetchall()
+        return [self._visual_annotation(row) for row in rows]
+
     def save_retrieval_run(
         self,
         response: RetrievalResponse,
@@ -818,6 +956,21 @@ class Repository:
             document_id=row["document_id"],
             field_name=row["field_name"],
             block_id=row["block_id"],
+            status=row["status"],
+            note=row["note"],
+            created_at=row["created_at"],
+        )
+
+    @staticmethod
+    def _visual_annotation(
+        row: sqlite3.Row,
+    ) -> VisualEvidenceAnnotationRecord:
+        return VisualEvidenceAnnotationRecord(
+            annotation_id=row["annotation_id"],
+            document_id=row["document_id"],
+            field_name=row["field_name"],
+            asset_id=row["asset_id"],
+            relevance=row["relevance"],
             status=row["status"],
             note=row["note"],
             created_at=row["created_at"],

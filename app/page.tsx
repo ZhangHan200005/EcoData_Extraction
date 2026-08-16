@@ -92,6 +92,17 @@ type GoldRecord = {
   created_at: string;
 };
 
+type VisualAnnotationRecord = {
+  annotation_id: string;
+  document_id: string;
+  field_name: string;
+  asset_id: string;
+  relevance: "relevant" | "not_relevant" | "uncertain";
+  status: "draft" | "verified";
+  note: string;
+  created_at: string;
+};
+
 type RetrievalHit = {
   rank: number;
   block: BlockRecord;
@@ -188,6 +199,7 @@ type StatePayload = {
   spec: ProjectSpec | null;
   documents: DocumentRecord[];
   gold: GoldRecord[];
+  visual_annotations: VisualAnnotationRecord[];
   latest_evaluation: Evaluation | null;
   source_directory: string;
 };
@@ -234,6 +246,10 @@ function statusLabel(status: DocumentRecord["screening_status"]) {
   )[status];
 }
 
+function visualKindLabel(kind: VisualAsset["kind"]) {
+  return kind === "table" ? "表格" : kind === "figure" ? "图" : "图像";
+}
+
 function FieldChips({
   title,
   fields,
@@ -271,6 +287,7 @@ export default function Home() {
     spec: null,
     documents: [],
     gold: [],
+    visual_annotations: [],
     latest_evaluation: null,
     source_directory: "",
   });
@@ -286,6 +303,9 @@ export default function Home() {
     useState<RetrievalComparison | null>(null);
   const [blockQuery, setBlockQuery] = useState("");
   const [blockSearch, setBlockSearch] = useState<BlockRecord[]>([]);
+  const [visualKindFilter, setVisualKindFilter] = useState<
+    "all" | VisualAsset["kind"]
+  >("all");
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
 
   const refresh = async () => {
@@ -356,6 +376,31 @@ export default function Home() {
       return counts;
     }, {});
   }, [state.documents]);
+
+  const selectedDocument = useMemo(
+    () =>
+      state.documents.find(
+        (document) => document.document_id === selectedDocumentId,
+      ),
+    [selectedDocumentId, state.documents],
+  );
+
+  const visualAssets = useMemo(() => {
+    const assets = selectedDocument?.visual_assets ?? [];
+    return visualKindFilter === "all"
+      ? assets
+      : assets.filter((asset) => asset.kind === visualKindFilter);
+  }, [selectedDocument, visualKindFilter]);
+
+  const selectedVisualAnnotations = useMemo(
+    () =>
+      state.visual_annotations.filter(
+        (annotation) =>
+          annotation.document_id === selectedDocumentId &&
+          annotation.field_name === selectedField,
+      ),
+    [selectedDocumentId, selectedField, state.visual_annotations],
+  );
 
   const runAction = async (name: string, action: () => Promise<void>) => {
     setBusy(name);
@@ -479,6 +524,41 @@ export default function Home() {
       if (comparison) await fetchComparison();
       else if (retrieval) await fetchRetrieval();
       setNotice("已移除该 gold evidence。");
+    });
+
+  const saveVisualAnnotation = (
+    asset: VisualAsset,
+    relevance: VisualAnnotationRecord["relevance"],
+  ) =>
+    runAction(`visual-${asset.asset_id}`, async () => {
+      await api("/api/visual-annotations", {
+        method: "POST",
+        body: JSON.stringify({
+          document_id: selectedDocumentId,
+          field_name: selectedField,
+          asset_id: asset.asset_id,
+          relevance,
+          status: relevance === "uncertain" ? "draft" : "verified",
+          note: "Visual evidence audit workbench",
+        }),
+      });
+      await refresh();
+      setNotice(
+        relevance === "relevant"
+          ? "已加入视觉相关 Gold。"
+          : relevance === "not_relevant"
+            ? "已确认该视觉资产与当前字段无关。"
+            : "已将该视觉资产保留为待定。",
+      );
+    });
+
+  const removeVisualAnnotation = (annotationId: string, assetId: string) =>
+    runAction(`visual-${assetId}`, async () => {
+      await api(`/api/visual-annotations/${annotationId}`, {
+        method: "DELETE",
+      });
+      await refresh();
+      setNotice("已清除该视觉证据判断。");
     });
 
   const searchBlocks = () =>
@@ -879,6 +959,7 @@ export default function Home() {
                       setRetrieval(null);
                       setComparison(null);
                       setBlockSearch([]);
+                      setVisualKindFilter("all");
                     }}
                     value={selectedDocumentId}
                   >
@@ -949,6 +1030,164 @@ export default function Home() {
                   {busy === "compare" ? "正在比较…" : "比较三种方法"}
                 </button>
               </article>
+
+              {selectedDocumentId && selectedField ? (
+                <section
+                  className="visual-gold-section"
+                  data-testid="visual-evidence-annotations"
+                >
+                  <div className="section-heading visual-gold-heading">
+                    <div>
+                      <span className="eyebrow">VISUAL EVIDENCE GOLD</span>
+                      <h3>图表证据独立标注</h3>
+                    </div>
+                    <div className="visual-gold-summary">
+                      <strong>
+                        {
+                          selectedVisualAnnotations.filter(
+                            (item) =>
+                              item.relevance === "relevant" &&
+                              item.status === "verified",
+                          ).length
+                        }
+                      </strong>
+                      <span>相关 Gold</span>
+                      <strong>{selectedVisualAnnotations.length}</strong>
+                      <span>已判断</span>
+                    </div>
+                  </div>
+                  <div className="visual-gold-toolbar">
+                    <p>
+                      判断当前字段是否存在于某张图或表；这组标签独立于文本
+                      Hit@K/Recall，后续数字化只处理“相关 Gold”。
+                    </p>
+                    <label>
+                      视觉类别
+                      <select
+                        onChange={(event) =>
+                          setVisualKindFilter(
+                            event.target.value as
+                              | "all"
+                              | VisualAsset["kind"],
+                          )
+                        }
+                        value={visualKindFilter}
+                      >
+                        <option value="all">全部</option>
+                        <option value="figure">图</option>
+                        <option value="table">表格</option>
+                        <option value="image">图像/扫描页</option>
+                      </select>
+                    </label>
+                  </div>
+                  {visualAssets.length ? (
+                    <div className="visual-gold-grid">
+                      {visualAssets.map((asset) => {
+                        const annotation = selectedVisualAnnotations.find(
+                          (item) => item.asset_id === asset.asset_id,
+                        );
+                        return (
+                          <article
+                            className={
+                              annotation
+                                ? `visual-review ${annotation.relevance}`
+                                : "visual-review"
+                            }
+                            key={asset.asset_id}
+                          >
+                            <header>
+                              <strong>{visualKindLabel(asset.kind)}</strong>
+                              <span>p.{asset.page}</span>
+                              <span>
+                                候选置信度 {Math.round(asset.confidence * 100)}%
+                              </span>
+                            </header>
+                            <p>{asset.summary}</p>
+                            <small>
+                              {asset.detection_method} · bbox [
+                              {asset.bbox.join(", ")}] · {asset.parser_version}
+                            </small>
+                            <a
+                              className="visual-page-link"
+                              href={`${API_BASE}/api/documents/${selectedDocumentId}/pdf#page=${asset.page}`}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              查看 PDF 第 {asset.page} 页 ↗
+                            </a>
+                            <div className="visual-review-actions">
+                              <button
+                                className={
+                                  annotation?.relevance === "relevant"
+                                    ? "active relevant"
+                                    : ""
+                                }
+                                disabled={busy === `visual-${asset.asset_id}`}
+                                onClick={() =>
+                                  saveVisualAnnotation(asset, "relevant")
+                                }
+                                type="button"
+                              >
+                                {annotation?.relevance === "relevant"
+                                  ? "✓ 相关 Gold"
+                                  : "相关 Gold"}
+                              </button>
+                              <button
+                                className={
+                                  annotation?.relevance === "not_relevant"
+                                    ? "active not-relevant"
+                                    : ""
+                                }
+                                disabled={busy === `visual-${asset.asset_id}`}
+                                onClick={() =>
+                                  saveVisualAnnotation(asset, "not_relevant")
+                                }
+                                type="button"
+                              >
+                                无关
+                              </button>
+                              <button
+                                className={
+                                  annotation?.relevance === "uncertain"
+                                    ? "active uncertain"
+                                    : ""
+                                }
+                                disabled={busy === `visual-${asset.asset_id}`}
+                                onClick={() =>
+                                  saveVisualAnnotation(asset, "uncertain")
+                                }
+                                type="button"
+                              >
+                                待定
+                              </button>
+                              {annotation ? (
+                                <button
+                                  className="clear"
+                                  disabled={busy === `visual-${asset.asset_id}`}
+                                  onClick={() =>
+                                    removeVisualAnnotation(
+                                      annotation.annotation_id,
+                                      asset.asset_id,
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  清除
+                                </button>
+                              ) : null}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="visual-gold-empty">
+                      当前论文在此类别下没有候选；这不等同于人工确认“无图表
+                      证据”。
+                    </div>
+                  )}
+                </section>
+              ) : null}
 
               {comparison ? (
                 <section
@@ -1337,11 +1576,23 @@ export default function Home() {
                 <div>
                   <span className="eyebrow">GOLD COVERAGE</span>
                   <strong>{state.gold.length}</strong>
-                  <p>条人工证据标注</p>
+                  <p>条文本 Gold</p>
+                </div>
+                <div>
+                  <span className="eyebrow">VISUAL REVIEW</span>
+                  <strong>
+                    {
+                      state.visual_annotations.filter(
+                        (item) => item.relevance === "relevant",
+                      ).length
+                    }
+                  </strong>
+                  <p>条视觉相关 Gold</p>
                 </div>
                 <p>
                   没有人工 gold 就没有真实的 Recall。请先在“证据召回审计”中标记正确证据，
-                  尤其要用“全文补漏”加入 Top K 之外的证据。
+                  尤其要用“全文补漏”加入 Top K 之外的文本证据。视觉标注单独计数，
+                  当前不混入文本召回指标。
                 </p>
               </div>
 

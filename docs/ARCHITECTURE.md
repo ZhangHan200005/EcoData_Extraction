@@ -10,6 +10,7 @@ flowchart LR
     C["本地 PDF 目录"] --> D["版本化阅读顺序解析"]
     D --> E["父段 / child 证据块<br/>SQLite"]
     D --> M["图表候选概况<br/>页码 / caption / bbox"]
+    M --> N["字段级视觉审核<br/>相关 / 无关 / 待定"]
     B --> F["四级文献筛选"]
     E --> F
     B --> G["字段查询扩展"]
@@ -31,6 +32,8 @@ flowchart LR
   父段身份、child 序号、页码、章节、类型和 PDF 坐标。
 - `visual_assets` 保存图、表和嵌入图像候选；它只描述“检测到什么、在
   哪里、是否可能数字化”，不把候选自动当成已验证科研数据。
+- `visual_evidence_annotations` 保存字段级视觉判断，引用稳定 `asset_id`，
+  与引用 `block_id` 的文本 Gold 分开。
 - 完整全文需要时按 `ordinal` 拼接 `blocks.text` 即可，不再复制一份大字符串。
 - `gold_evidence` 只保存对证据块的引用。
 - `retrieval_runs` 和 `evaluations` 保存版本化实验结果。单次召回还独立记录 retrieval backend、backend/model 版本、参数、查询数、语料块数、耗时和缓存统计；旧数据库通过只增列迁移保留原记录。
@@ -85,6 +88,12 @@ parent_id, parent_text, chunk_index, chunk_count, bbox
 嵌入图像对象。每项记录类型、页码、caption、bbox、检测来源、置信度、
 结构候选状态和 parser 版本。无 caption 的矢量图可能漏检，复杂线框也可能
 被误判为表格，因此 UI 明确称其为“候选”和“待核对”。
+
+人工审核时，figure、table 和 image 作为独立视觉类别进入字段级标注。每个
+候选可标为 `relevant`、`not_relevant` 或 `uncertain`，并能打开来源 PDF 的
+对应页核对。`relevant + verified` 才称为视觉相关 Gold。这一步只回答“该
+字段的信息是否存在于该视觉资产”，不会推断曲线值或表格单元格。重解析若
+会移除已标注 `asset_id`，事务拒绝覆盖，防止机器更新删除人工事实。
 
 当前已知边界：没有文字层的扫描 PDF 会进入 `failed`，需要后续 OCR 或人工
 处理。Docling 尚未成为可运行 backend；引入前必须固定其模型 artifacts、
@@ -150,6 +159,11 @@ document_sha256 + block_id + normalized_text_hash
 必须用“全文补漏”找 Top-K 之外的相关证据，否则只审核 Top-K 会产生 verification bias，并虚高 Recall。
 
 网页允许从任意对比结果卡片直接标记 Gold，也可以在“全文补漏”中按关键词搜索或一次载入当前论文的全部证据块（API 明确上限 300）再逐条审核。这个入口减少了只看 Top-K 的偏差，但 Gold 的语义判断仍由人工负责；跨论文代表性、改写等价性和 hard-negative 的最终确认不能由待评估模型自行决定。
+
+视觉证据使用 `(document_id, field_name, asset_id)` 的独立标注口径，记录
+相关、无关和待定。因为当前检索器只排序文本 child block，视觉相关 Gold
+不进入文本 Hit@K、Recall@K、Precision@K 或 MRR 的分母；混合这两类标签
+会产生无意义的指标。后续实现视觉/表格 retrieval 时应单独报告资产级召回。
 
 评估结果同时报告 Gold 数、查询数、论文数和字段数。覆盖太小时，即使指标是 100%，也不能代表整体性能。
 

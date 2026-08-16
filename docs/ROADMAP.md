@@ -1,6 +1,6 @@
 # EcoEvidence development roadmap
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
 ## Purpose
 
@@ -290,6 +290,8 @@ Accepted first slice before manual Gold labeling:
 - rank bounded child chunks while returning their full parent paragraph;
 - inventory figure/table/image candidates with page, caption, bbox, detection
   method, confidence, parser identity, and digitization status;
+- annotate each visual candidate independently by field as relevant Gold,
+  not relevant, or uncertain, with a direct link to its source PDF page;
 - refuse reparsing that would silently invalidate existing Gold block IDs;
 - keep Docling as an evaluated optional follow-up, not a default dependency or
   an untested public capability.
@@ -304,7 +306,8 @@ First-slice evidence on the fixed private local 15-PDF corpus:
 - a previously interleaved Chinese two-column site paragraph now keeps
   `115°04'E, 26°44'N` together in reading order;
 - offline tests cover a generated two-column PDF, coordinates, visual captions,
-  margin removal, parent-child context, and Gold-preserving reparse failure;
+  margin removal, parent-child context, text/visual Gold-preserving reparse
+  failure, visual annotation updates, and source-PDF review access;
 - these private-corpus counts are diagnostic evidence, not a public accuracy or
   table-recall claim. Details are append-only in
   [the Chinese M5 guide](M5_PARSING_GUIDE_CN.md).
