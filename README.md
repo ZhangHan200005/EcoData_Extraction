@@ -83,10 +83,26 @@ macOS / Linux：
 ```bash
 git clone https://github.com/ZhangHan200005/EcoData_Extraction.git
 cd EcoData_Extraction
+python3 --version
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 npm ci
 ```
+
+`python3 --version` 必须是 3.10 或更高。虚拟环境会固定使用创建它的
+Python；后来升级系统 Python 不会自动升级已有 `.venv`。如果安装提示
+`requires a different Python`，保留旧环境作为备份，并用 3.10+ 解释器重建：
+
+```bash
+mv .venv .venv-py39-backup
+/path/to/python3.13 -m venv .venv
+.venv/bin/python -m pip install -e ".[neural]"
+```
+
+其中 `/path/to/python3.13` 替换为 `python3.10`、`python3.11`、`python3.12`
+或 `python3.13` 的实际路径；不要向 macOS 系统 Python 使用
+`--break-system-packages`。确认新环境和工作台正常后，再自行决定是否保留
+备份。
 
 Windows PowerShell 中，Python 安装命令改为：
 

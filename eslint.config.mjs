@@ -17,6 +17,7 @@ const eslintConfig = defineConfig([
     ".vinext/**",
     ".wrangler/**",
     "node_modules/**",
+    ".venv*/**",
     ".codex_ppt_*/**",
     "MVP_v1/**",
     "mvp_v1.1/**",

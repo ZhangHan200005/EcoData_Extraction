@@ -241,3 +241,52 @@
   对应验证为 34 个后端测试、前端生产构建、2 个页面测试和 lint 全部通过。
 - E5 neural extra 本轮没有安装或下载；视觉标注功能及自动测试不依赖模型、
   付费 API 或密钥。
+
+### M5-F020 — neural 安装失败的真实原因与安全恢复
+
+- 用户运行 `.venv/bin/python -m pip install -e ".[neural]"` 时，项目元数据
+  报告 Python `3.9.6 not in '>=3.10'`。原因是 `.venv` 由 Python 3.9.6
+  创建；虚拟环境绑定创建时的解释器，后来安装新 Python 不会原地升级它。
+- 本机 `/usr/bin/python3` 也是 3.9.6；Homebrew 已有 Python 3.13.13。直接
+  对 Homebrew Python 安装被 PEP 668 正确阻止，因此没有使用会污染受管理
+  解释器的 `--break-system-packages`。
+- 先在临时 Python 3.13 venv 中执行 neural extra 的 dependency dry-run，
+  确认固定 `torch 2.13.0` 存在原生 macOS arm64 / CPython 3.13 wheel 后，
+  才迁移正式环境。
+- 旧环境没有删除，而是移动为 `.venv-py39-backup-20260816`；新 `.venv`
+  使用 Python 3.13.13 重建。`.gitignore` 和 ESLint 均忽略 `.venv*`，避免
+  恢复备份被误提交，也避免 lint 扫描 Torch 等依赖自带的 JavaScript。
+  该操作没有修改论文、SQLite 数据库、Gold 或 Git 分支历史。
+
+### M5-F021 — E5 本机运行时与真实三路对比
+
+- 新 `.venv` 已安装并核对固定版本：`sentence-transformers 5.5.1`、
+  `transformers 5.15.0`、`torch 2.13.0`；固定模型是
+  `intfloat/multilingual-e5-small` revision
+  `614241f622f53c4eeff9890bdc4f31cfecc418b3`。运行时使用
+  `ECODATA_MODEL_LOCAL_FILES_ONLY=1`，复用已存在的约 470 MB 本地缓存，
+  没有付费 API 或密钥。
+- 对 15 篇语料中的江西湿地松论文、字段 `stem_respiration_rate`、Top 5
+  执行真实三路比较。首次 E5 对 88 个 child block 编码并写入 88 个缓存，
+  记录 35,284.5 ms；同一查询第二次 88/88 缓存命中，记录 67.5 ms。
+  这些是本机单次观测，不是跨机器性能基准。
+- 工作台第 03 步再次实测 Top 8：BM25-only、hashing hybrid、E5 hybrid
+  均显示“可运行”；该次热缓存页面分别记录约 9.1 ms、28.3 ms、45.4 ms，
+  E5 卡片显示完整 backend/model/version。15 篇论文选择器和独立视觉 Gold
+  区域均保持可用。
+- 当前没有人工文本 Gold，因此页面的 Hit@K、Recall@K 和 Gold 首位仍显示
+  未标注；耗时和排名是真实结果，但不能据此宣称 E5 的检索质量优于基线。
+  质量结论必须等待同一批人工 Gold 后再比较。
+
+### M5-F022 — 如何理解和调整 neural 本地环境
+
+- `.venv` 约 1.0 GB，旧 Python 3.9 备份约 70 MB，模型缓存约 470 MB；三者
+  角色不同：venv 放运行依赖，备份用于可恢复迁移，`data/models` 放固定
+  权重。不要把任一目录提交到 Git。
+- 遇到 neural 不可用时按顺序检查：`.venv/bin/python --version`，三个包的
+  精确版本，`/api/health` 中 `retrieval_backend_runtime.ready`，最后才运行
+  页面比较。这样能区分“解释器不兼容”“依赖未安装”“模型未缓存”和
+  “检索请求失败”。
+- 需要改模型或依赖版本时，应同时更新 `pyproject.toml` 的固定依赖、backend
+  的 model/revision 元数据、运行时兼容检查、缓存身份、测试和本指南；只换
+  模型名会让旧向量与新向量的来源不可审计。
