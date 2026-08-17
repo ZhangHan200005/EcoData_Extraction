@@ -23,8 +23,15 @@ EcoEvidence 将研究需求拆解为字段 Schema，解析 PDF 全文并生成�
 ### 已实现并可运行
 
 - 将自然语言需求拆解为目标变量、必须字段、关注字段、来源和排除规则。
-- 使用 `pdfplumber` / `pypdf` 解析 PDF 全文，生成稳定 block ID。
-- 在 record level 保存论文、页码、章节、类型和 PDF 坐标，支持证据回链。
+- 使用版本化 `pdfplumber-reading-order-v2` 解析 PDF 文本层，修复常见双栏
+  阅读顺序、重复页眉页脚、跨行英文断词、科学下标和中英文断行问题。
+- 将父段切成适合检索的 child chunk；排序命中 child 后返回完整父段上下文，
+  并保留页码、章节、原始文本、PDF 坐标和稳定 block ID。
+- 生成实验性的图表概况，记录图/表/图像候选的页码、caption、bbox、检测
+  方法、置信度和待数字化状态；当前不声称理解图像或已完成数值数字化。
+- 在“证据召回审计”中把视觉证据作为独立类别，按字段将每个 figure/table/
+  image 候选标为相关 Gold、无关或待定，并可打开原 PDF 对应页核对。视觉
+  标签与文本 block Gold 分开保存和统计。
 - 使用 BM25、字符 n-gram hashing 向量相似度、术语覆盖和章节先验进行可解释的混合召回。
 - 使用可替换、带版本元数据的 Embedding backend 契约运行召回；提供固定 revision 的本地 `multilingual-e5-small` 神经 backend，默认仍是离线 hashing baseline，并记录模型标识、运行时参数和耗时。
 - 使用 SQLite 持久化证据块向量，并用文档、文本、backend、模型、参数和维度的组合哈希防止静默复用过期向量。
@@ -36,6 +43,8 @@ EcoEvidence 将研究需求拆解为字段 Schema，解析 PDF 全文并生成�
 ### 实验中 / 下一步
 
 - 扩大冻结 Gold 查询集，评估 `multilingual-e5-small` 相对 hashing baseline 的跨文档质量与 CPU 延迟；当前微型 fixture 不能证明质量提升。
+- 评估 Docling 作为可选解析 backend 的模型许可、下载、CPU/MPS 行为和
+  15 篇本地语料增益；默认安装与 CI 仍只使用轻量离线 parser。
 - 将字段定义与候选证据组合为 RAG 上下文，接入 LLM 结构化抽取。
 - 增加扫描 PDF 的 OCR、表格结构识别、单位标准化和 Schema 校验。
 - 增加字段级导出、人工修改率、单位转换准确率和端到端处理耗时评测。
@@ -74,10 +83,26 @@ macOS / Linux：
 ```bash
 git clone https://github.com/ZhangHan200005/EcoData_Extraction.git
 cd EcoData_Extraction
+python3 --version
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 npm ci
 ```
+
+`python3 --version` 必须是 3.10 或更高。虚拟环境会固定使用创建它的
+Python；后来升级系统 Python 不会自动升级已有 `.venv`。如果安装提示
+`requires a different Python`，保留旧环境作为备份，并用 3.10+ 解释器重建：
+
+```bash
+mv .venv .venv-py39-backup
+/path/to/python3.13 -m venv .venv
+.venv/bin/python -m pip install -e ".[neural]"
+```
+
+其中 `/path/to/python3.13` 替换为 `python3.10`、`python3.11`、`python3.12`
+或 `python3.13` 的实际路径；不要向 macOS 系统 Python 使用
+`--break-system-packages`。确认新环境和工作台正常后，再自行决定是否保留
+备份。
 
 Windows PowerShell 中，Python 安装命令改为：
 
@@ -136,11 +161,12 @@ npm run dev
 
 1. 在“研究需求”页保留预填需求，点击“解析这段需求”。
 2. 进入“全文解析与筛选”，点击“同步 PDF 全文”。
-3. 确认合成论文被解析，并查看页码、章节和筛选原因。
+3. 确认合成论文被解析，并查看页码、章节、父段/子块、图表概况和筛选原因。
 4. 在“证据召回审计”中选择一个字段；点击“比较三种方法”查看
    BM25-only、hashing hybrid 和 E5 hybrid，或运行单路 Top-K 召回。
-5. 直接在结果卡片标记 Gold；再用“全文补漏”的搜索或“浏览全部”检查
-   Top-K 之外的证据块，避免只审核模型已召回的内容。
+5. 直接在结果卡片标记文本 Gold；再用“全文补漏”的搜索或“浏览全部”检查
+   Top-K 之外的证据块，避免只审核模型已召回的内容。图表候选在独立面板
+   按字段标记，可先打开原 PDF 对应页再判断相关、无关或待定。
 6. 在“量化评估”中查看 Hit@K、Recall@K、Precision@K 和 MRR。
 
 预期证据及人工核对提示见 [Demo 说明](demo/README.md)。如果要换成自己的 PDF，请把文件放入另一个目录后启动：
@@ -163,7 +189,7 @@ npm run test:backend
 npm test
 ```
 
-`npm test` 会先执行生产构建，再验证服务端渲染页面。后端测试覆盖需求拆解、四级筛选、排序分数组成、API 和评估公式。
+`npm test` 会先执行生产构建，再验证服务端渲染页面。后端测试覆盖需求拆解、双栏/经纬度解析、parent-child chunk、图表概况、Gold 安全保护、四级筛选、排序分数组成、API 和评估公式。
 
 ## 目录说明
 
@@ -191,7 +217,7 @@ tests/            前端生产构建与服务端渲染测试
 
 运行数据默认保存在 `data/ecoevidence.sqlite3`，数据库已被 Git 忽略。PDF 原件不会被复制到其他位置；数据库只记录来源路径和哈希。
 
-当前 Demo 不是通用生产系统。真实神经 Embedding 已有可选本地运行路径和三路交互比较，但只在微型合成 fixture 上验证，尚无跨论文质量提升证据。网页支持按关键词补漏和浏览当前论文最多 300 个证据块；代表性 Gold 集仍需要人工全文审核。系统暂不支持扫描件 OCR、复杂表格结构还原、LLM 字段抽取、单位自动标准化或最终结构化导出。对外介绍时，请把未验证能力表述为 roadmap 或正在集成，而不是已经完成。
+当前 Demo 不是通用生产系统。真实神经 Embedding 已有可选本地运行路径和三路交互比较，但只在微型合成 fixture 上验证，尚无跨论文质量提升证据。网页支持按关键词补漏和浏览当前论文最多 300 个证据块；代表性 Gold 集仍需要人工全文审核。图表概况只是 caption、PDF 表格边界和嵌入图像对象的候选清单，可能漏掉无 caption 的矢量图，也可能包含误报；视觉 Gold 只确认“某字段与该资产相关”，不是表格单元格抽取、图像理解或曲线数字化，也不混入文本 Hit@K/Recall。系统暂不支持扫描件 OCR、Docling 运行 backend、LLM 字段抽取、单位自动标准化或最终结构化导出。对外介绍时，请把未验证能力表述为 roadmap 或正在集成，而不是已经完成。
 
 ## 继续阅读
 
@@ -200,4 +226,5 @@ tests/            前端生产构建与服务端渲染测试
 - [中文学习与调试指南](docs/LEARNING_GUIDE.md)
 - [系统架构与数据流](docs/ARCHITECTURE.md)
 - [M2 中文实施与学习指南](docs/M2_IMPLEMENTATION_GUIDE_CN.md)
+- [M5 中文解析与分块事实指南](docs/M5_PARSING_GUIDE_CN.md)
 - [Demo 预期证据](demo/README.md)

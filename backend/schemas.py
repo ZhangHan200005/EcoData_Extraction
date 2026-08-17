@@ -50,6 +50,29 @@ class BlockRecord(BaseModel):
     kind: str
     text: str
     bbox: list[float] = Field(default_factory=list)
+    raw_text: str = ""
+    parent_id: str = ""
+    parent_text: str = ""
+    chunk_index: int = Field(default=0, ge=0)
+    chunk_count: int = Field(default=1, ge=1)
+
+
+class VisualAssetRecord(BaseModel):
+    asset_id: str
+    document_id: str
+    page: int = Field(ge=1)
+    kind: Literal["figure", "table", "image"]
+    caption: str = ""
+    bbox: list[float] = Field(default_factory=list)
+    detection_method: str
+    confidence: float = Field(ge=0, le=1)
+    summary: str
+    has_structured_content: bool = False
+    digitization_status: Literal[
+        "not_assessed", "candidate", "not_suitable", "digitized"
+    ] = "not_assessed"
+    parser_backend: str
+    parser_version: str
 
 
 class DocumentRecord(BaseModel):
@@ -65,6 +88,8 @@ class DocumentRecord(BaseModel):
     parser_status: str
     parser_warnings: list[str] = Field(default_factory=list)
     parser_version: str
+    parser_backend: str = "pdfplumber"
+    parse_elapsed_ms: float = Field(default=0, ge=0)
     screening_status: ScreeningStatus = "failed"
     screening_reasons: list[str] = Field(default_factory=list)
     missing_required_fields: list[str] = Field(default_factory=list)
@@ -90,6 +115,8 @@ class RetrievalHit(BaseModel):
     score_components: dict[str, float]
     matched_terms: list[str] = Field(default_factory=list)
     is_gold: bool = False
+    parent_context: str = ""
+    context_block_ids: list[str] = Field(default_factory=list)
 
 
 class RetrievalBackendMetadata(BaseModel):
@@ -178,6 +205,20 @@ class GoldEvidenceInput(BaseModel):
 
 class GoldEvidenceRecord(GoldEvidenceInput):
     gold_id: str
+    created_at: str
+
+
+class VisualEvidenceAnnotationInput(BaseModel):
+    document_id: str
+    field_name: str
+    asset_id: str
+    relevance: Literal["relevant", "not_relevant", "uncertain"]
+    status: Literal["draft", "verified"] = "verified"
+    note: str = ""
+
+
+class VisualEvidenceAnnotationRecord(VisualEvidenceAnnotationInput):
+    annotation_id: str
     created_at: str
 
 

@@ -1,6 +1,6 @@
 # EcoEvidence development roadmap
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
 ## Purpose
 
@@ -29,7 +29,9 @@ research requirement -> local PDF parsing -> four-level screening
 Implemented and tested:
 
 - natural-language requirement decomposition into reviewable fields;
-- text-layer PDF parsing into stable evidence blocks;
+- text-layer PDF parsing with conservative two-column reading order;
+- parent-child evidence chunks and inspectable parent context;
+- experimental figure/table/image candidate inventory;
 - document, page, section, block, and bounding-box provenance;
 - `usable`, `relative`, `nodata`, and `failed` screening states;
 - BM25 + character n-gram hashing + terminology + section-prior retrieval;
@@ -55,10 +57,10 @@ Not yet implemented as production-ready functionality:
 | --- | --- | --- | --- |
 | M0 | Reproducible portfolio baseline | Completed | Public Demo, README, tests, CI, PR #1 |
 | M1 | Repository rules and measurable Roadmap | Completed | `AGENTS.md`, this Roadmap, PR #2 |
-| M2 | Versioned neural Embedding and Vector Retrieval | In progress | Baseline comparison with Hit@K, Recall@K, MRR, latency |
+| M2 | Versioned neural Embedding and Vector Retrieval | Completed | Versioned BM25/hashing/E5 comparison, PR #4 |
 | M3 | Schema-guided RAG structured extraction | Planned | Validated field output with evidence and offline tests |
 | M4 | Field provenance, quality rules, and export | Planned | Traceable manifest plus JSON/CSV export |
-| M5 | OCR and table-aware parsing | Planned | Scanned/table fixtures with parsing and recall tests |
+| M5 | OCR and table-aware parsing | In progress | Reading-order/chunk/visual inventory slice in Draft PR #5 |
 | M6 | Literature discovery and PDF acquisition | Planned | Reproducible candidate manifest and acquisition states |
 | M7 | Human review evaluation and portfolio release | Planned | Correction set, failure analysis, end-to-end metrics |
 
@@ -101,7 +103,7 @@ Out of scope: retrieval or product behavior changes.
 
 ## M2 — Versioned neural Embedding and Vector Retrieval
 
-Status: **In progress** — branch `feature/embedding-retrieval`; Draft PR
+Status: **Completed** — delivered in
 [#4](https://github.com/ZhangHan200005/EcoData_Extraction/pull/4)
 
 Goal: introduce a real semantic retrieval backend without losing the current
@@ -203,11 +205,12 @@ Fourth-slice implementation evidence:
   document blocks (up to the API's explicit 300-block review limit) for
   Top-K miss auditing.
 
-Current M2 limitation: the real model path is runnable and measured, but the
+Remaining M2 evaluation limitation: the real model path is runnable and measured, but the
 frozen set is too small to establish quality or throughput beyond the bundled
 Demo. Side-by-side interaction makes differences inspectable but does not turn
-the synthetic corpus into representative evidence. The milestone remains **In
-progress** while Draft PR #4 is reviewed and the broader Gold set is built.
+the synthetic corpus into representative evidence. A broader Gold set belongs
+to the later human-review evaluation milestone and does not invalidate the
+completed versioned retrieval slice.
 
 Out of scope: LLM generation, OCR, and final field extraction.
 
@@ -266,7 +269,7 @@ Acceptance criteria:
 
 ## M5 — OCR and table-aware parsing
 
-Status: **Planned**
+Status: **In progress** — branch `feature/pdf-parsing`, Draft PR #5
 
 Goal: improve evidence coverage across scanned and table-heavy PDFs.
 
@@ -278,6 +281,36 @@ Scope:
   blocks that retrieval and provenance can consume;
 - preserve raw OCR/table output alongside normalized text;
 - add redistributable scanned and table fixtures.
+
+Accepted first slice before manual Gold labeling:
+
+- preserve the original lightweight parser as a documented comparison point;
+- rebuild text lines from positioned words and fix common two-column reading
+  order, repeated margins, scientific subscripts, hyphenation, and CJK joins;
+- rank bounded child chunks while returning their full parent paragraph;
+- inventory figure/table/image candidates with page, caption, bbox, detection
+  method, confidence, parser identity, and digitization status;
+- annotate each visual candidate independently by field as relevant Gold,
+  not relevant, or uncertain, with a direct link to its source PDF page;
+- refuse reparsing that would silently invalidate existing Gold block IDs;
+- keep Docling as an evaluated optional follow-up, not a default dependency or
+  an untested public capability.
+
+First-slice evidence on the fixed private local 15-PDF corpus:
+
+- 14 PDFs retained usable text-layer parsing and one remained explicitly
+  classified as requiring OCR;
+- parser v2 produced 2,974 retrieval child blocks over 2,407 parent paragraphs
+  and 185 unverified visual candidates in about 24.9 seconds on the developer
+  machine;
+- a previously interleaved Chinese two-column site paragraph now keeps
+  `115°04'E, 26°44'N` together in reading order;
+- offline tests cover a generated two-column PDF, coordinates, visual captions,
+  margin removal, parent-child context, text/visual Gold-preserving reparse
+  failure, visual annotation updates, and source-PDF review access;
+- these private-corpus counts are diagnostic evidence, not a public accuracy or
+  table-recall claim. Details are append-only in
+  [the Chinese M5 guide](M5_PARSING_GUIDE_CN.md).
 
 Acceptance criteria:
 

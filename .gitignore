@@ -43,7 +43,7 @@ next-env.d.ts
 /work/
 
 # local Python runtime and parsed evidence database
-/.venv/
+/.venv*/
 /.pycache/
 /*.egg-info/
 __pycache__/

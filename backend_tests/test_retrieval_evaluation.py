@@ -69,12 +69,42 @@ class RetrievalEvaluationTests(unittest.TestCase):
         self.assertIn("stem respiration", ranking.query.lower())
         self.assertEqual(self.blocks[2].block_id, ranking.hits[0].block.block_id)
         self.assertEqual(
-            {"bm25", "semantic", "term_coverage", "section_prior"},
+            {
+                "bm25",
+                "semantic",
+                "term_coverage",
+                "section_prior",
+                "reference_multiplier",
+            },
             set(ranking.hits[0].score_components),
         )
         self.assertEqual("hashing", retriever.backend_metadata.backend)
         self.assertFalse(retriever.backend_metadata.is_neural)
         self.assertGreaterEqual(ranking.elapsed_ms, 0)
+
+    def test_reference_hard_negative_is_audibly_downweighted(self) -> None:
+        evidence = block(
+            10,
+            "Measured stem respiration was 2.1 µmol CO2 m-2 s-1.",
+            section="results",
+        )
+        citation = block(
+            11,
+            "Stem respiration stem respiration woody tissue respiration.",
+            section="references",
+        )
+
+        ranking = EvidenceRetriever().rank(
+            [citation, evidence], "stem_respiration_rate", self.spec
+        )
+
+        self.assertEqual(evidence.block_id, ranking.hits[0].block.block_id)
+        reference_hit = next(
+            hit for hit in ranking.hits if hit.block.block_id == citation.block_id
+        )
+        self.assertEqual(
+            0.25, reference_hit.score_components["reference_multiplier"]
+        )
 
     def test_evaluator_computes_gold_based_metrics(self) -> None:
         gold_block = self.blocks[2]

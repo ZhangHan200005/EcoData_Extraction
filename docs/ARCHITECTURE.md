@@ -7,8 +7,10 @@ MVP 1.1 只解决到“可量化的证据召回评估”。M2 已把向量编码
 ```mermaid
 flowchart LR
     A["自由研究需求"] --> B["ProjectSpec<br/>用户核对"]
-    C["本地 PDF 目录"] --> D["全文布局解析"]
-    D --> E["规范化证据块<br/>SQLite"]
+    C["本地 PDF 目录"] --> D["版本化阅读顺序解析"]
+    D --> E["父段 / child 证据块<br/>SQLite"]
+    D --> M["图表候选概况<br/>页码 / caption / bbox"]
+    M --> N["字段级视觉审核<br/>相关 / 无关 / 待定"]
     B --> F["四级文献筛选"]
     E --> F
     B --> G["字段查询扩展"]
@@ -26,7 +28,12 @@ flowchart LR
 全文信息仍然被读取。区别在于存储单位：
 
 - `documents` 只保存论文级元数据、解析状态和筛选结果。
-- `blocks` 是唯一的全文事实来源，每条保存文本、页码、章节、类型和 PDF 坐标。
+- `blocks` 是唯一的全文文本事实来源，每条保存规范化文本、原始文本、
+  父段身份、child 序号、页码、章节、类型和 PDF 坐标。
+- `visual_assets` 保存图、表和嵌入图像候选；它只描述“检测到什么、在
+  哪里、是否可能数字化”，不把候选自动当成已验证科研数据。
+- `visual_evidence_annotations` 保存字段级视觉判断，引用稳定 `asset_id`，
+  与引用 `block_id` 的文本 Gold 分开。
 - 完整全文需要时按 `ordinal` 拼接 `blocks.text` 即可，不再复制一份大字符串。
 - `gold_evidence` 只保存对证据块的引用。
 - `retrieval_runs` 和 `evaluations` 保存版本化实验结果。单次召回还独立记录 retrieval backend、backend/model 版本、参数、查询数、语料块数、耗时和缓存统计；旧数据库通过只增列迁移保留原记录。
@@ -41,7 +48,7 @@ flowchart LR
 |---|---|---|
 | [schemas.py](../backend/schemas.py) | API 与数据库之间的数据契约 | 业务判断 |
 | [requirement_interpreter.py](../backend/requirement_interpreter.py) | 把自由描述拆成可核对字段 | 判断论文是否有数据 |
-| [pdf_parser.py](../backend/pdf_parser.py) | 全文、布局、章节、caption、稳定 ID | OCR 扫描页 |
+| [pdf_parser.py](../backend/pdf_parser.py) | 文本层阅读顺序、父段/child chunk、图表候选、稳定 ID | OCR、图像理解或最终数字化 |
 | [screening.py](../backend/screening.py) | `usable/relative/nodata/failed` 基线规则 | 最终人工结论 |
 | [retrieval.py](../backend/retrieval.py) | Embedding/cache 契约、缓存身份、查询扩展、BM25、向量相似度和排序 | SQL、模型下载或最终数值抽取 |
 | [embedding_backends.py](../backend/embedding_backends.py) | pinned E5 模型身份、lazy load、query/passage 前缀和本地运行时检查 | 混合排序、HTTP 或模型训练 |
@@ -51,19 +58,46 @@ flowchart LR
 | [api.py](../backend/api.py) | HTTP 路由、错误转换、CORS | 复杂业务逻辑 |
 | [page.tsx](../app/page.tsx) | 四阶段交互和人工审核 | PDF 算法 |
 
-## 4. 全文解析
+## 4. 全文解析、层级分块与图表概况
 
-[pdf_parser.py](../backend/pdf_parser.py) 使用 `pdfplumber` 读取每页文本行和边界框，再按垂直间距、栏跳转、标题、caption 和最大长度合并成证据块。`pypdf` 负责页数和元数据兜底。
+[pdf_parser.py](../backend/pdf_parser.py) 的默认 backend 是
+`pdfplumber-reading-order-v2`。它先从定位单词重建文本行，把科学上下标
+归回所在行，再用保守的页面中缝判断双栏；栏内从上到下、先左栏后右栏，
+全宽标题作为阅读顺序锚点。跨页重复页眉页脚会在构造证据前移除。英文
+断词、中英文换行、控制字符和常见 `CO2` / `Q10` 表达只在规范化文本中
+修复，原始行文本仍单独保留。`pypdf` 负责页数和元数据兜底。
+
+解析先生成完整父段，再将超过 680 字符的父段拆成目标约 480 字符、带
+短句重叠的 child。检索只给 child 编码和排序，响应同时携带完整
+`parent_context` 与同父段 child ID；人工 Gold 仍引用实际命中的 child
+block。这样可以兼顾短 chunk 的定位精度和长上下文的可读性。
 
 每个证据块包含：
 
 ```text
-block_id, document_id, ordinal, page, section, kind, text, bbox
+block_id, document_id, ordinal, page, section, kind, text, raw_text,
+parent_id, parent_text, chunk_index, chunk_count, bbox
 ```
 
-`block_id` 由 PDF 哈希、页码、顺序和文本计算，因此同一 PDF 在相同解析版本下可以稳定引用。PDF 哈希与 `parser_version` 决定是否复用；修改解析算法时应提升版本号。
+`block_id` 由父段身份、child 序号和 child 文本计算，因此同一 PDF 在相同
+解析版本下可以稳定引用。PDF 哈希与 `parser_version` 决定是否复用；修改
+解析算法时应提升版本号。重解析前数据库检查该论文已有 Gold；如果新输出
+不能保留被引用的 block ID，事务会拒绝覆盖，防止级联删除人工事实。
 
-当前已知边界：没有文字层的扫描 PDF 会进入 `failed`，需要后续 OCR 或人工处理。
+图表概况合并三类弱信号：caption 文本、`pdfplumber` 表格边界以及 PDF
+嵌入图像对象。每项记录类型、页码、caption、bbox、检测来源、置信度、
+结构候选状态和 parser 版本。无 caption 的矢量图可能漏检，复杂线框也可能
+被误判为表格，因此 UI 明确称其为“候选”和“待核对”。
+
+人工审核时，figure、table 和 image 作为独立视觉类别进入字段级标注。每个
+候选可标为 `relevant`、`not_relevant` 或 `uncertain`，并能打开来源 PDF 的
+对应页核对。`relevant + verified` 才称为视觉相关 Gold。这一步只回答“该
+字段的信息是否存在于该视觉资产”，不会推断曲线值或表格单元格。重解析若
+会移除已标注 `asset_id`，事务拒绝覆盖，防止机器更新删除人工事实。
+
+当前已知边界：没有文字层的扫描 PDF 会进入 `failed`，需要后续 OCR 或人工
+处理。Docling 尚未成为可运行 backend；引入前必须固定其模型 artifacts、
+许可证、离线加载和资源基线，且不会替换当前轻量 parser 对照。
 
 ## 5. 文献筛选
 
@@ -86,6 +120,10 @@ block_id, document_id, ordinal, page, section, kind, text, bbox
 + 0.15 × 术语覆盖
 + 0.05 × 章节先验
 ```
+
+上述基础分在 `references` 区段乘以可审计的 `0.25` hard-negative 系数，
+避免引用标题因关键词密度挤占原始研究证据；该系数同时出现在响应分数组件
+和 retrieval parameters 中，不会隐式删除参考文献 block。
 
 字符向量是可离线复现的 hashing baseline，不是神经网络 embedding。它的优势是没有模型下载、成本和网络依赖；劣势是语义泛化有限。`EmbeddingBackend` 要求每个实现暴露 backend、backend version、model、model version、维度、参数和是否为神经模型，并分别批量编码 query 和 passages。`EvidenceRetriever` 通过该接口取得向量，因此 hashing 和神经模型可以对同一证据块、查询、混合权重和 Gold 集运行。
 
@@ -121,6 +159,11 @@ document_sha256 + block_id + normalized_text_hash
 必须用“全文补漏”找 Top-K 之外的相关证据，否则只审核 Top-K 会产生 verification bias，并虚高 Recall。
 
 网页允许从任意对比结果卡片直接标记 Gold，也可以在“全文补漏”中按关键词搜索或一次载入当前论文的全部证据块（API 明确上限 300）再逐条审核。这个入口减少了只看 Top-K 的偏差，但 Gold 的语义判断仍由人工负责；跨论文代表性、改写等价性和 hard-negative 的最终确认不能由待评估模型自行决定。
+
+视觉证据使用 `(document_id, field_name, asset_id)` 的独立标注口径，记录
+相关、无关和待定。因为当前检索器只排序文本 child block，视觉相关 Gold
+不进入文本 Hit@K、Recall@K、Precision@K 或 MRR 的分母；混合这两类标签
+会产生无意义的指标。后续实现视觉/表格 retrieval 时应单独报告资产级召回。
 
 评估结果同时报告 Gold 数、查询数、论文数和字段数。覆盖太小时，即使指标是 100%，也不能代表整体性能。
 
