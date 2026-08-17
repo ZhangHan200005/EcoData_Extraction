@@ -290,3 +290,20 @@
 - 需要改模型或依赖版本时，应同时更新 `pyproject.toml` 的固定依赖、backend
   的 model/revision 元数据、运行时兼容检查、缓存身份、测试和本指南；只换
   模型名会让旧向量与新向量的来源不可审计。
+
+### M5-F023 — 网页看似回到旧版时如何判断
+
+- 2026-08-17 检查时，Git 工作区和远端都在最新提交 `f627c2c`，不存在代码
+  回退；真正原因是本机 3000、3001 和 8771 端口都没有服务在监听。浏览器
+  保留的旧标签只能显示缓存外壳、等待后端或连接失败，因此视觉上容易被
+  误认为“老版本”。
+- 最新工作台已用 15 篇数据库重新启动：前端 `http://localhost:3000`；后端
+  使用 `pdfplumber-reading-order-v2`、`parent-child-480char-v1`、
+  `hybrid-parent-context-v6` 和固定 revision 的 `multilingual-e5-small`，
+  并启用 `ECODATA_MODEL_LOCAL_FILES_ONLY=1`。
+- 新浏览器标签已进入第 03 步并完成一次 Top 8 三路比较：BM25、hashing、
+  E5 均为“可运行”，E5 新进程首次模型加载记录约 8.55 秒；15 篇论文选择器、
+  文本 `+ Gold`、全文补漏和独立视觉 Gold 均可用，页面无 warning/error。
+- 排查顺序应是：先看 Git HEAD，再检查 3000/8771 是否监听，然后读取
+  `/api/health` 的 database/parser/chunking/retrieval/model 身份，最后打开
+  新标签。只看浏览器旧标签不能判断代码版本。
